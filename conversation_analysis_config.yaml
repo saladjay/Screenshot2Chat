@@ -1,0 +1,67 @@
+# 这个配置文件用于配置experience_formula.py中根据经验公式寻找聊天框的user(也就是账号所有人的)和talker(其他人的)聊天框起点
+# 使用经验公式去判别text box是否是聊天框
+
+
+discord:
+  user_box_left_filters: # user气泡左边起点筛选项
+    - 'lt_1' # lt 等于 less than, 整句话代表user气泡左边起点相对于图片宽度的比例小于1 
+    - 'lt_0.4'
+    - 'gt_0.1' # gt 等于 greater than, 整句话代表user气泡左边起点相对于图片宽度的比例大于0.1
+
+  user_box_right_filters: # user气泡左边起点筛选项
+    - 'none' # 代表没有筛选项
+
+  talker_box_left_filters: # talker 气泡左边起点筛选项
+    - 'lt_1' # lt 等于 less than, 整句话代表user气泡左边起点相对于图片宽度的比例小于1 
+    - 'lt_0.4'
+    - 'gt_0.1' # gt 等于 greater than, 整句话代表user气泡左边起点相对于图片宽度的比例大于0.1
+
+  talker_box_right_filters: # talker 气泡左边起点筛选项
+    - 'none'
+
+whatsapp:
+  user_box_left_filters: # user气泡左边起点筛选项
+    - 'gt_0.2' # gt 等于 greater than, 整句话代表user气泡左边起点相对于图片宽度的比例大于0.2
+
+  user_box_right_filters: # user气泡左边起点筛选项
+    - 'lt_0.98'
+    - 'gt_0.65' 
+
+  talker_box_left_filters: # talker 气泡左边起点筛选项
+    - 'gt_0.005' # gt 等于 greater than, 整句话代表user气泡左边起点相对于图片宽度的比例大于0.05
+    - 'lt_0.15'
+
+  talker_box_right_filters: # talker 气泡右边终点筛选项
+    - 'none'
+
+
+instagram:
+  user_box_left_filters: # user气泡左边起点筛选项
+    - 'none' # gt 等于 greater than, 整句话代表user气泡左边起点相对于图片宽度的比例大于0.1
+
+  user_box_right_filters: # user气泡左边起点筛选项
+    - 'gt_0.9'
+
+  talker_box_left_filters: # talker 气泡左边起点筛选项
+    - 'lt_0.4'
+    - 'gt_0.1' # gt 等于 greater than, 整句话代表user气泡左边起点相对于图片宽度的比例大于0.1
+
+  talker_box_right_filters: # talker 气泡左边起点筛选项
+    - 'none' # 代表没有筛选项
+
+telegram:
+  user_box_left_filters: # user气泡左边起点筛选项
+    - 'lt_1' # lt 等于 less than, 整句话代表user气泡左边起点相对于图片宽度的比例小于1 
+    - 'lt_0.4'
+    - 'gt_0.1' # gt 等于 greater than, 整句话代表user气泡左边起点相对于图片宽度的比例大于0.1
+
+  user_box_right_filters: # user气泡左边起点筛选项
+    - 'none' # 代表没有筛选项
+
+  talker_box_left_filters: # talker 气泡左边起点筛选项
+    - 'lt_1' # lt 等于 less than, 整句话代表user气泡左边起点相对于图片宽度的比例小于1 
+    - 'lt_0.4'
+    - 'gt_0.1' # gt 等于 greater than, 整句话代表user气泡左边起点相对于图片宽度的比例大于0.1
+
+  talker_box_right_filters: # talker 气泡左边起点筛选项
+    - 'none'
