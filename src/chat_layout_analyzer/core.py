@@ -22,7 +22,7 @@ class ChatTextRecognition:
         if self.model_name == 'PaddleOCR':
             self.model = PaddleOCR(self.lang)
         if self.model_name == 'PP-OCRv5_server_rec':
-            self.model = TextRecognition(model_name="PP-OCRv5_server_rec")
+            self.model = TextRecognition(model_name="PP-OCRv5_server_rec", model_dir='./models/PP-OCRv5_server_rec/')
 
     def predict_text(self, image:np.ndarray):
         if self.model_name != 'PaddleOCR':
@@ -84,11 +84,11 @@ class ChatLayoutAnalyzer:
                     self.model = LayoutDetection(model_name=self.model_name, model_dir='./models/PP-DocLayoutV2', threshold=threshold_by_id)
                     self.logger.info("模型加载成功")
                 if self.model_name == 'PP-DocLayout-L':
-
+                    raise NotImplementedError("PP-DocLayout-L模型加载未实现")
                     self.model = LayoutDetection(model_name=self.model_name)
                     self.logger.info("模型加载成功")
                 if self.model_name == "PP-OCRv5_server_det":
-                    self.model = TextDetection(model_name=self.model_name)
+                    self.model = TextDetection(model_name=self.model_name, model_dir='./models/PP-OCRv5_server_det/')
                     self.logger.info("模型加载成功")
             except Exception as e:
                 self.logger.error(f"模型加载失败: {e}")

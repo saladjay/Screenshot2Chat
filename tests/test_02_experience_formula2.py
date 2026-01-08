@@ -1,5 +1,8 @@
 from chat_layout_analyzer.experience_formula import *
-from chat_layout_analyzer.utils import DISCORD, WHATSAPP, INSTAGRAM, TELEGRAM 
+from chat_layout_analyzer.utils import DISCORD, WHATSAPP, INSTAGRAM, TELEGRAM, ImageLoader, letterbox
+import os
+import pytest
+import cv2
 from chat_layout_analyzer import ChatLayoutAnalyzer, ChatMessageProcessor
 import numpy as np
 import random
@@ -87,7 +90,8 @@ class TestExperienceFormula:
                     log_file = open(os.path.join(output_path, file+'.txt'), 'w', encoding='utf-8')
                     text_det_results = text_det_analyzer.analyze_chat_screenshot(image_path)
                     layout_det_results = layout_det_analyzer.analyze_chat_screenshot(image_path)
-                    image = ImageLoader.load_image(image)
+                    image = ImageLoader.load_image(image_path)
+                    image = np.array(image)
                     image, _ = letterbox(image)
                     padding = text_det_results['padding']
                     image_sizes = text_det_results['image_size']
@@ -96,7 +100,7 @@ class TestExperienceFormula:
                     text_boxes = layout_postprocess.format_conversation(layout_det_results['results'], text_det_results['results'], padding, image_sizes, ratios = ratios, app_type = app_type, log_file = log_file)
                     for box in text_boxes:
                         image = cv2.rectangle(image, 
-                                    (int(box['coordinate'][0]), int(box['coordinate'][1])), 
-                                    (int(box['coordinate'][2]), int(box['coordinate'][3])), 
+                                    (box.x_min, box.y_min), 
+                                    (box.x_max, box.y_max), 
                                     (0, 255, 255), 2)
-                        
+                    cv2.imwrite(os.path.join(output_path, file), cv2.cvtColor(image, cv2.COLOR_RGB2BGR))

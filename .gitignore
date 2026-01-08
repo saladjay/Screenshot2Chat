@@ -10,7 +10,8 @@ wheels/
 .venv
 
 test*/
-!/tests/
+*/__pycache__/
+!/tests/*.py
 !/test_images/
 
 .pytest_cache/

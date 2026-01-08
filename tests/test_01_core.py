@@ -3,7 +3,7 @@ import os
 from PIL import Image
 import numpy as np
 import cv2
-from chat_layout_analyzer import ChatLayoutAnalyzer
+from chat_layout_analyzer import ChatLayoutAnalyzer, ChatTextRecognition
 from chat_layout_analyzer.utils import ImageLoader
 
 
@@ -18,6 +18,11 @@ class TestChatLayoutAnalyzer:
         analyzer = ChatLayoutAnalyzer(model_name="PP-OCRv5_server_det")
         assert analyzer.model_name == "PP-OCRv5_server_det"
         assert analyzer.model is None
+
+        en_rec = ChatTextRecognition(model_name="PP-OCRv5_server_rec", lang="en")
+        assert en_rec.model_name == "PP-OCRv5_server_rec"
+        assert en_rec.lang == "en"
+        assert en_rec.model is None
 
     def test_image_predict(self):
         """测试图片预测功能"""
@@ -64,6 +69,9 @@ class TestChatLayoutAnalyzer:
         analyzer = ChatLayoutAnalyzer(model_name="PP-OCRv5_server_det")
         analyzer.load_model()
         assert analyzer.model is not None
+        en_rec = ChatTextRecognition(model_name="PP-OCRv5_server_rec", lang="en")
+        en_rec.load_model()
+        assert en_rec.model is not None
         
     
 

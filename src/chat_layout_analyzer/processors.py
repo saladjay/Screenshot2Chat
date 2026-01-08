@@ -341,6 +341,40 @@ class ChatMessageProcessor:
         if log_file:
             log_file.close()
 
+    def _boxes_coverage(self, boxes1, boxes2):
+        """
+        计算boxes2与boxes1的覆盖率 = 交集面积 / boxes1面积
+        用于评估boxes2覆盖boxes1的程度
+        
+        Args:
+            boxes1: [n, 4] 基准矩形框集合 (通常是需要被覆盖的框)
+            boxes2: [m, 4] 覆盖矩形框集合
+        
+        Returns:
+            coverage_matrix: [n, m] 覆盖率矩阵
+        """
+        boxes1 = np.array(boxes1)
+        boxes2 = np.array(boxes2)
+        
+        # 计算每个边界框的面积
+        area1 = (boxes1[:, 2] - boxes1[:, 0]) * (boxes1[:, 3] - boxes1[:, 1])  # (n,)
+        area2 = (boxes2[:, 2] - boxes2[:, 0]) * (boxes2[:, 3] - boxes2[:, 1])  # (m,)
+        
+        # 使用广播机制计算交集区域的坐标
+        lt = np.maximum(boxes1[:, None, :2], boxes2[:, :2])  # 左上角交点 (n,m,2)
+        rb = np.minimum(boxes1[:, None, 2:], boxes2[:, 2:])  # 右下角交点 (n,m,2)
+        
+        # 计算交集区域的宽高并确保非负
+        wh = np.maximum(rb - lt, 0)  # (n,m,2)
+        
+        # 计算交集面积
+        inter = wh[:, :, 0] * wh[:, :, 1]  # (n,m)
+        
+        # 计算覆盖率 = 交集面积 / boxes1面积
+        coverage_matrix = inter / np.maximum(area1[:, None], 1e-8)  # (n,m)
+        
+        return coverage_matrix
+
     def _boxes_iou(self, boxes1, boxes2):
         boxes1 = np.array(boxes1)
         boxes2 = np.array(boxes2)
@@ -360,7 +394,7 @@ class ChatMessageProcessor:
         inter = wh[:, :, 0] * wh[:, :, 1]  # (n,m)
         
         # 计算并集面积
-        union = area1[:, None] + area2 - inter  # (n,m)
+        union = area1[:, None] + area2 - inter   # (n,m)
         
         # 计算IoU，避免除以0
         iou_matrix = inter / np.maximum(union, 1e-8)  # (n,m)
@@ -388,11 +422,11 @@ class ChatMessageProcessor:
             return sorted_box
         
         else:
-            iou_matrix = self._boxes_iou(text_det_text_boxes_np, layout_det_text_boxes_np)
+            iou_matrix = self._boxes_coverage(text_det_text_boxes_np, layout_det_text_boxes_np)
             if log_file:
                 print(f'text_det shape {text_det_text_boxes_np.shape} layout_det shape {layout_det_text_boxes_np.shape} iou matrix {iou_matrix.shape}', file=log_file)
 
-            def get_matches_for_each_box1(iou_matrix, threshold=0.12):
+            def get_matches_for_each_box1(iou_matrix, threshold=0.2):
                 mask = iou_matrix > threshold
                 result = []
                 for i in range(iou_matrix.shape[0]):
