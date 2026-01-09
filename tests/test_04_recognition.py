@@ -41,7 +41,7 @@ class TestTextRecognition:
                 if score < 0.8:
                     continue 
                 print(f'{min_x} {min_y} {max_x} {max_y}', file=log_file)
-                cv2.imwrite(f'{output_dir}/{res['rec_text']}.jpg', text_image)
+                cv2.imwrite(f"{output_dir}/{res['rec_text']}.jpg", text_image)
                 print(res['rec_score'], file=log_file)
                 # print(res['vis_font'], file=log_file)
                 print(res['rec_text'], file=log_file)
