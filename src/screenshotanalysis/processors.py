@@ -6,8 +6,8 @@ import cv2
 from PIL import Image, ImageDraw, ImageFont
 from pathlib import Path
 from copy import deepcopy
-from chat_layout_analyzer.experience_formula import *
-from chat_layout_analyzer.utils import DISCORD, WHATSAPP, INSTAGRAM, TELEGRAM
+from screenshotanalysis.experience_formula import *
+from screenshotanalysis.utils import DISCORD, WHATSAPP, INSTAGRAM, TELEGRAM
 NAME_LINE = 'name_line' # 用户名字
 MULTI_LINE = 'multi_line' # 多行聊天框
 SINGLE_LINE = 'single_line' # 单行聊天框

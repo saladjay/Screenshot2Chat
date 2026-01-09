@@ -6,7 +6,7 @@ from typing import List, Dict, Any, Optional, Union
 from paddlex import create_model
 from paddleocr import LayoutDetection, TextDetection, PaddleOCR, TextRecognition
 import logging
-from chat_layout_analyzer.utils import ImageLoader, letterbox
+from screenshotanalysis.utils import ImageLoader, letterbox
 
 
 class ChatTextRecognition:

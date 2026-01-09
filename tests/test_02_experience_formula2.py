@@ -1,9 +1,9 @@
-from chat_layout_analyzer.experience_formula import *
-from chat_layout_analyzer.utils import DISCORD, WHATSAPP, INSTAGRAM, TELEGRAM, ImageLoader, letterbox
+from screenshotanalysis.experience_formula import *
+from screenshotanalysis.utils import DISCORD, WHATSAPP, INSTAGRAM, TELEGRAM, ImageLoader, letterbox
 import os
 import pytest
 import cv2
-from chat_layout_analyzer import ChatLayoutAnalyzer, ChatMessageProcessor
+from screenshotanalysis import ChatLayoutAnalyzer, ChatMessageProcessor
 import numpy as np
 import random
 

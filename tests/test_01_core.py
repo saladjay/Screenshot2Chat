@@ -3,8 +3,8 @@ import os
 from PIL import Image
 import numpy as np
 import cv2
-from chat_layout_analyzer import ChatLayoutAnalyzer, ChatTextRecognition
-from chat_layout_analyzer.utils import ImageLoader
+from screenshotanalysis import ChatLayoutAnalyzer, ChatTextRecognition
+from screenshotanalysis.utils import ImageLoader
 
 
 

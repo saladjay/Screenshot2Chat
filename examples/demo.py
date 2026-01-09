@@ -7,7 +7,7 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from src.chat_layout_analyzer import ChatLayoutAnalyzer, LayoutVisualizer
+from src.screenshotanalysis import ChatLayoutAnalyzer, LayoutVisualizer
 
 def demo_single_image():
     """单张聊天截图分析示例"""

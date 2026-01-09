@@ -4,7 +4,7 @@
 """
 
 import argparse
-from chat_layout_analyzer import ChatLayoutAnalyzer, LayoutVisualizer
+from screenshotanalysis import ChatLayoutAnalyzer, LayoutVisualizer
 
 def main():
     parser = argparse.ArgumentParser(description='聊天内容布局分析工具')
@@ -24,7 +24,7 @@ def main():
     if args.batch:
         # 批量处理模式
         import os
-        from chat_layout_analyzer.utils import get_image_files
+        from screenshotanalysis.utils import get_image_files
         
         image_files = get_image_files(args.image_path)
         results = analyzer.analyze_chat_session(image_files)

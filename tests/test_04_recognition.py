@@ -3,9 +3,9 @@ import os
 from PIL import Image
 import numpy as np
 import cv2
-from chat_layout_analyzer import ChatLayoutAnalyzer, ChatTextRecognition
-from chat_layout_analyzer.utils import ImageLoader, letterbox
-from chat_layout_analyzer.processors import ChatMessageProcessor
+from screenshotanalysis import ChatLayoutAnalyzer, ChatTextRecognition
+from screenshotanalysis.utils import ImageLoader, letterbox
+from screenshotanalysis.processors import ChatMessageProcessor
 OUTPUT_PATH = 'test_recognition'
 
 class TestTextRecognition:

@@ -3,11 +3,11 @@ import os
 from PIL import Image
 import numpy as np
 import cv2
-from chat_layout_analyzer import ChatLayoutAnalyzer
-from chat_layout_analyzer.utils import ImageLoader, letterbox
-from chat_layout_analyzer.processors import ChatMessageProcessor
-from chat_layout_analyzer.utils import DISCORD, WHATSAPP, INSTAGRAM, TELEGRAM
-from chat_layout_analyzer.experience_formula import *
+from screenshotanalysis import ChatLayoutAnalyzer
+from screenshotanalysis.utils import ImageLoader, letterbox
+from screenshotanalysis.processors import ChatMessageProcessor
+from screenshotanalysis.utils import DISCORD, WHATSAPP, INSTAGRAM, TELEGRAM
+from screenshotanalysis.experience_formula import *
 class TestLayoutAnalysis:
     def test_text_det(self):
         test_layout_output = 'test_text_det'

@@ -9,7 +9,7 @@ wheels/
 # Virtual environments
 .venv
 
-test*/
+test_*/
 */__pycache__/
 !/tests/*.py
 !/test_images/

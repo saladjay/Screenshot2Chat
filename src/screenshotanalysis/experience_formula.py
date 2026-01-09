@@ -5,7 +5,7 @@ import os
 from functools import reduce
 from sklearn.cluster import KMeans
 import joblib
-from chat_layout_analyzer.utils import DISCORD, WHATSAPP, INSTAGRAM, TELEGRAM
+from screenshotanalysis.utils import DISCORD, WHATSAPP, INSTAGRAM, TELEGRAM
 
 USER_LEFT = 'user_box_left_filters'
 USER_RIGHT = 'user_box_right_filters'
