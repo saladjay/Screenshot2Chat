@@ -9,5 +9,13 @@ __all__ = [
     "ChatLayoutAnalyzer",
     "ChatMessageProcessor", 
     "LayoutVisualizer",
-    "ChatTextRecognition"
+    "ChatTextRecognition",
+    "layout_det",
+    "text_det",
+    "en_rec"
 ]
+
+
+layout_det = ChatLayoutAnalyzer("PP-DocLayoutV2")
+text_det = ChatLayoutAnalyzer("PP-OCRv5_server_det")
+en_rec = ChatTextRecognition("PP-OCRv5_server_rec")
