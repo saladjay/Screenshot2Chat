@@ -119,8 +119,8 @@ class ChatLayoutAnalyzer:
         try:
             # 加载模型
             self.logger.info("analyze_chat_screenshot: 开始加载模型...")
-            model = self.load_model()
-            self.logger.info(f"analyze_chat_screenshot: 模型加载完成, model={model}")
+            # model = self.load_model()
+            self.logger.info(f"analyze_chat_screenshot: 模型加载完成, model={self.model}")
             self.logger.info(f"image type:{type(image)}")
             if not isinstance(image, np.ndarray):
                 # 预处理图像
@@ -140,7 +140,7 @@ class ChatLayoutAnalyzer:
 
             # 执行版面分析
             self.logger.info("开始版面分析...")
-            results = model.predict(image, **self.predict_kwargs)
+            results = self.model.predict(image, **self.predict_kwargs)
             self.logger.info("版面分析完成")
             self.current_image = image
             return {
