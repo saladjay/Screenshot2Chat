@@ -9,7 +9,9 @@ import logging
 from screenshotanalysis.utils import ImageLoader, letterbox
 
 PADDLE_MODEL_DIR = os.getenv('PADDLE_MODEL_DIR', '')
-
+if PADDLE_MODEL_DIR == "":
+    PADDLE_MODEL_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    print("PADDLE_MODEL_DIR", PADDLE_MODEL_DIR)
 class ChatTextRecognition:
     def __init__(self, model_name: str="", lang:str = "", **kwargs):
 
@@ -50,50 +52,58 @@ class ChatLayoutAnalyzer:
 
     def load_model(self):
         """加载PP-DocLayoutV2模型"""
-        if self.model is None:
-            try:
-                self.logger.info(f"正在加载模型 {self.model_name}...")
-                if self.model_name == 'PP-DocLayoutV2':
-                    # self.model = create_model(model_name=self.model_name)
-                    threshold_by_id = {
-                        0 : 0.9, # abstract
-                        1 : 0.6, # algorithm
-                        2 : 0.6, # aside_text
-                        3 : 0.6, # chart
-                        4 : 0.6, # content
-                        5 : 0.6, # display_formula
-                        6 : 0.6, # doc_title
-                        7 : 0.6, # figure_title
-                        8 : 0.6, # footer
-                        9 : 0.6, # footer_image
-                        10: 0.6, # footnote
-                        11: 0.6, # formula_number
-                        12: 0.6, # header
-                        13: 0.6, # header_image
-                        14: 0.5, # image
-                        15: 0.6, # inline_formula
-                        16: 0.6, # number 
-                        17: 0.4, # paragraph_title
-                        18: 0.6, # reference
-                        19: 0.6, # reference_content
-                        20: 0.6, # seal
-                        21: 0.6, # table
-                        22: 0.4, # text
-                        23: 0.6, # vertical_text
-                        24: 0.6, # vision_footnote
-                        }
-                    self.model = LayoutDetection(model_name=self.model_name, model_dir=os.path.join(PADDLE_MODEL_DIR, 'models/PP-DocLayoutV2'), threshold=threshold_by_id)
-                    self.logger.info("模型加载成功")
-                if self.model_name == 'PP-DocLayout-L':
-                    raise NotImplementedError("PP-DocLayout-L模型加载未实现")
-                    self.model = LayoutDetection(model_name=self.model_name)
-                    self.logger.info("模型加载成功")
-                if self.model_name == "PP-OCRv5_server_det":
-                    self.model = TextDetection(model_name=self.model_name, model_dir=os.path.join(PADDLE_MODEL_DIR, 'models/PP-OCRv5_server_det/'))
-                    self.logger.info("模型加载成功")
-            except Exception as e:
-                self.logger.error(f"模型加载失败: {e}")
-                raise
+        if self.model is not None:
+            self.logger.info(f"{self.model_name} 模型已加载，跳过")
+            return self.model
+            
+        self.logger.info(f"正在加载模型 {self.model_name}...")
+        try:
+            if self.model_name == 'PP-DocLayoutV2':
+                threshold_by_id = {
+                    0 : 0.9, # abstract
+                    1 : 0.6, # algorithm
+                    2 : 0.6, # aside_text
+                    3 : 0.6, # chart
+                    4 : 0.6, # content
+                    5 : 0.6, # display_formula
+                    6 : 0.6, # doc_title
+                    7 : 0.6, # figure_title
+                    8 : 0.6, # footer
+                    9 : 0.6, # footer_image
+                    10: 0.6, # footnote
+                    11: 0.6, # formula_number
+                    12: 0.6, # header
+                    13: 0.6, # header_image
+                    14: 0.5, # image
+                    15: 0.6, # inline_formula
+                    16: 0.6, # number 
+                    17: 0.4, # paragraph_title
+                    18: 0.6, # reference
+                    19: 0.6, # reference_content
+                    20: 0.6, # seal
+                    21: 0.6, # table
+                    22: 0.4, # text
+                    23: 0.6, # vertical_text
+                    24: 0.6, # vision_footnote
+                }
+                model_dir = os.path.join(PADDLE_MODEL_DIR, 'models/PP-DocLayoutV2')
+                self.logger.info(f"模型目录: {model_dir}")
+                self.logger.info("开始创建 LayoutDetection 实例...")
+                self.model = LayoutDetection(model_name=self.model_name, model_dir=model_dir, threshold=threshold_by_id)
+                self.logger.info("LayoutDetection 实例创建完成")
+            elif self.model_name == 'PP-DocLayout-L':
+                raise NotImplementedError("PP-DocLayout-L模型加载未实现")
+            elif self.model_name == "PP-OCRv5_server_det":
+                model_dir = os.path.join(PADDLE_MODEL_DIR, 'models/PP-OCRv5_server_det/')
+                self.logger.info(f"模型目录: {model_dir}")
+                self.model = TextDetection(model_name=self.model_name, model_dir=model_dir)
+            
+            self.logger.info(f"{self.model_name} 模型加载成功")
+        except BaseException as e:
+            self.logger.error(f"模型加载失败 (load_model): {type(e).__name__}: {e}")
+            import traceback
+            self.logger.error(f"错误详情: {traceback.format_exc()}")
+            raise
         return self.model
     
     def analyze_chat_screenshot(self, image) -> Dict[str, Any]:
@@ -108,29 +118,42 @@ class ChatLayoutAnalyzer:
         """
         try:
             # 加载模型
+            self.logger.info("analyze_chat_screenshot: 开始加载模型...")
             model = self.load_model()
-            
-            # 预处理图像
-            image = ImageLoader.load_image(image)
-            if image.mode == 'RGBA':
-                image = image.convert("RGB")
+            self.logger.info(f"analyze_chat_screenshot: 模型加载完成, model={model}")
+            self.logger.info(f"image type:{type(image)}")
+            if not isinstance(image, np.ndarray):
+                # 预处理图像
+                self.logger.info("开始加载图像...")
+                image = ImageLoader.load_image(image)
+                if image is None:
+                    raise ValueError("图像加载失败，请检查图像路径或格式")
+                self.logger.info(f"图像加载完成, mode={image.mode}")
+                if image.mode == 'RGBA':
+                    image = image.convert("RGB")
 
-            image = np.array(image)
+                image = np.array(image)
+            self.logger.info(f"image type:{type(image)}, shape:{image.shape}")
+            self.logger.info("开始 letterbox 处理...")
             image, padding = letterbox(image)
+            self.logger.info(f"letterbox 完成, padding={padding}")
 
             # 执行版面分析
             self.logger.info("开始版面分析...")
             results = model.predict(image, **self.predict_kwargs)
+            self.logger.info("版面分析完成")
             self.current_image = image
             return {
                 'success': True,
                 'image_size': [image.shape[1], image.shape[0]], # w, h
-                'padding': list(map(float, padding)),
+                'padding': [float(p) for p in padding],  # 确保 padding 是浮点数列表
                 'results': results
             }
             
         except Exception as e:
+            import traceback
             self.logger.error(f"分析过程出错: {e}")
+            self.logger.error(f"错误详情: {traceback.format_exc()}")
             return {
                 'success': False,
                 'error': str(e)

@@ -35,9 +35,14 @@ def letterbox(img, new_shape=(800, 800), color=(114, 114, 114), auto=True, scale
     
     返回:
     - img: 处理后的图像
-    - ratio: 缩放比例
-    - (dw, dh): 两侧的填充大小
+    - (left, top, right, bottom): 四边的填充大小
     """
+    # 确保图像是3通道
+    if len(img.shape) == 2:
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    elif img.shape[2] == 4:
+        img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+    
     # 获取原始图像尺寸
     shape = img.shape[:2]  # [height, width]
     

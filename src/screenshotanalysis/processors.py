@@ -411,7 +411,8 @@ class ChatMessageProcessor:
         text_det_text_boxes_np = np.array([text_box.box for text_box in text_det_text_boxes])
         if ratios is None: # 如果没输入ratios，就代表需要计算ratios，直接返回boxes
             return layout_det_text_boxes_np, text_det_text_boxes_np
-
+        else:
+            original_text_boxes = [layout_det_text_boxes_np, text_det_text_boxes_np]
         sorted_text_det_text_boxes = self.sort_boxes_by_y(text_det_text_boxes)
 
         if app_type == DISCORD:
@@ -419,7 +420,7 @@ class ChatMessageProcessor:
             avatar_boxes = self._get_all_avatar_boxes_from_layout_det(layout_det_results)
             sorted_avatar_boxes = self.sort_boxes_by_y(avatar_boxes)
             sorted_box = self.discord_group_text(sorted_avatar_boxes, filtered_text_boxes, log_file)
-            return sorted_box
+            return sorted_box, original_text_boxes
         
         else:
             iou_matrix = self._boxes_coverage(text_det_text_boxes_np, layout_det_text_boxes_np)
@@ -440,7 +441,7 @@ class ChatMessageProcessor:
                         if log_file:
                             print(f'{text_det_text_boxes[i].box.tolist()} : {layout_det_text_boxes[index].layout_det} iou:{iou_matrix[i, index]}', file=log_file) 
                     filtered_text_det_boxes.append(text_det_text_boxes[i])
-            return self.sort_boxes_by_y(filtered_text_det_boxes)
+            return self.sort_boxes_by_y(filtered_text_det_boxes), original_text_boxes
 
     def sort_boxes_by_y(self, boxes:list[TextBox]) -> list[TextBox]:
         return sorted(boxes, key=lambda b: b.y_min)

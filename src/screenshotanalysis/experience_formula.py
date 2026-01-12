@@ -2,6 +2,7 @@
 import numpy as np
 import yaml
 import os
+from typing import Dict, List
 from functools import reduce
 from sklearn.cluster import KMeans
 import joblib
@@ -15,7 +16,7 @@ TALKER_RIGHT = 'talker_box_right_filters'
 OUTPUT_PATH = 'history'
 DURING_TEST = False
 def calculate_condition_by_yaml_config(left_ratio, right_ratio, conversation_app_type):
-    with open('conversation_analysis_config.yaml', 'r') as file:
+    with open('conversation_analysis_config.yaml', 'r', encoding='utf-8') as file:
         config = yaml.safe_load(file)
     if conversation_app_type not in [DISCORD, WHATSAPP, INSTAGRAM, TELEGRAM]:
         raise NotImplementedError(f"未实现{conversation_app_type}的配置")
@@ -123,6 +124,45 @@ def save_data(data, ratios, conversation_app_type):
     np.save(f'{output}/data.npy', data)
     np.savetxt(f'{output}/ratios.txt', np.array(ratios), fmt='%.3f', delimiter=',')
 
+def concat_data(group_data_dict:List[Dict]):
+    data_lists = []
+    for group_data in group_data_dict:
+        padding = group_data['padding']
+        text_boxes = group_data['text_boxes']
+        image_sizes = group_data['image_sizes']
+        data = np.zeros((text_boxes.shape[0], 4+4+2))
+
+        data[:,:4] = text_boxes
+        for i in range(4):
+            data[:,4+i] = padding[i]
+        
+        for i in range(2):
+            data[:,8+i] = image_sizes[i]
+        
+        data_lists.append(data)
+
+    return np.concatenate(data_lists)
+
+def _update_data(data, conversation_app_type):
+    image_width_wo_padding = data[:, 8] - data[:, 4] - data[:, 6]
+    text_box_left = data[:, 0] - data[:, 4]
+    text_box_left_ratio = text_box_left / (image_width_wo_padding + 1e-9)
+
+    text_box_right = data[:, 2] - data[:, 4]
+    text_box_right_ratio = text_box_right / (image_width_wo_padding + 1e-9)
+
+    user_left, user_right, talker_left, talker_right = calculate_condition_by_yaml_config(text_box_left_ratio, text_box_right_ratio, conversation_app_type)
+
+    save_data(data, [user_left, user_right, talker_left, talker_right], conversation_app_type)
+
+def update_data_by_np_array(data, conversation_app_type):
+    old_data, _ = load_data(conversation_app_type)
+    new_data = np.zeros((old_data.shape[0] + data.shape[0], 10))
+    
+    new_data[:old_data.shape[0],:] = old_data
+    new_data[old_data.shape[0]:,:] = data
+    _update_data(new_data, conversation_app_type)
+
 def update_data(padding, text_boxes, image_sizes, conversation_app_type): # l,t,r,b   [n,4]    w, h
     if conversation_app_type not in [DISCORD, WHATSAPP, INSTAGRAM, TELEGRAM]:
         raise NotImplementedError(f"未实现{conversation_app_type}的配置")
@@ -139,17 +179,7 @@ def update_data(padding, text_boxes, image_sizes, conversation_app_type): # l,t,
     new_data = np.zeros((old_data.shape[0] + data.shape[0], 10))
     new_data[:old_data.shape[0],:] = old_data
     new_data[old_data.shape[0]:,:] = data
-
-    image_width_wo_padding = new_data[:, 8] - new_data[:, 4] - new_data[:, 6]
-    text_box_left = new_data[:, 0] - new_data[:, 4]
-    text_box_left_ratio = text_box_left / (image_width_wo_padding + 1e-9)
-
-    text_box_right = new_data[:, 2] - new_data[:, 4]
-    text_box_right_ratio = text_box_right / (image_width_wo_padding + 1e-9)
-
-    user_left, user_right, talker_left, talker_right = calculate_condition_by_yaml_config(text_box_left_ratio, text_box_right_ratio, conversation_app_type)
-
-    save_data(new_data, [user_left, user_right, talker_left, talker_right], conversation_app_type)
+    _update_data(new_data, conversation_app_type)
 
 
 class SpeakerPositionKMeans:
@@ -205,14 +235,14 @@ class SpeakerPositionKMeans:
             return "user"
     
     def save(self):
-        output = f'{OUTPUT_PATH}/{conversation_app_type}'
+        output = f'{OUTPUT_PATH}/{self.app_type}'
         if os.path.exists(output) == False:
             os.makedirs(output)
         joblib.dump(self.model, f'{output}/kmeans_model.joblib')
-        old_data = np.save(f'{output}/text_box_center.npy', self.data)
+        np.save(f'{output}/text_box_center.npy', self.data)
 
     def load_data(self):
-        output = f'{OUTPUT_PATH}/{conversation_app_type}'
+        output = f'{OUTPUT_PATH}/{self.app_type}'
         data_path = f'{output}/text_box_center.npy'
         data = None
         if os.path.exists(data_path):
@@ -224,7 +254,7 @@ class SpeakerPositionKMeans:
 
 
     def load_model(self):
-        output = f'{OUTPUT_PATH}/{conversation_app_type}'
+        output = f'{OUTPUT_PATH}/{self.app_type}'
         model_path = f'{output}/kmeans_model.joblib'
         if os.path.exists(model_path):
             try:

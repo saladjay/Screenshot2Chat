@@ -16,7 +16,7 @@ dependencies = [
     "statistics>=1.0.3.5",
     "joblib>=1.5.3",
     "scikit-learn>=1.8.0",
-    "snapy==1.1.8",
+    "snapy==1.1.8; sys_platform == 'linux'",
 ]
 
 
