@@ -8,6 +8,7 @@ from pathlib import Path
 from copy import deepcopy
 from screenshotanalysis.experience_formula import *
 from screenshotanalysis.utils import DISCORD, WHATSAPP, INSTAGRAM, TELEGRAM
+from screenshotanalysis.chat_layout_detector import ChatLayoutDetector
 NAME_LINE = 'name_line' # 用户名字
 MULTI_LINE = 'multi_line' # 多行聊天框
 SINGLE_LINE = 'single_line' # 单行聊天框
@@ -680,6 +681,97 @@ class ChatMessageProcessor:
             return 'contact'
         else:
             return 'user'
+
+    def detect_chat_layout_adaptive(self, text_boxes: List[TextBox], screen_width: int, 
+                                    memory_path: str = None, log_file=None) -> Dict:
+        """
+        使用新的自适应ChatLayoutDetector进行聊天布局检测
+        
+        这是一个应用无关的检测方法，不需要app_type参数。
+        它使用几何学习和历史记忆来自动识别说话者。
+        
+        Args:
+            text_boxes: TextBox对象列表
+            screen_width: 屏幕宽度（像素）
+            memory_path: 可选的记忆持久化路径
+            log_file: 可选的日志文件对象
+            
+        Returns:
+            包含以下字段的字典:
+            - layout: 布局类型 ("single", "double", "double_left", "double_right")
+            - A: Speaker A的文本框列表
+            - B: Speaker B的文本框列表
+            - metadata: 包含置信度、帧计数等元数据
+            
+        Example:
+            >>> processor = ChatMessageProcessor()
+            >>> result = processor.detect_chat_layout_adaptive(text_boxes, 720)
+            >>> print(f"Layout: {result['layout']}")
+            >>> print(f"Speaker A has {len(result['A'])} messages")
+            >>> print(f"Speaker B has {len(result['B'])} messages")
+        """
+        # 创建检测器实例
+        detector = ChatLayoutDetector(
+            screen_width=screen_width,
+            memory_path=memory_path
+        )
+        
+        # 处理当前帧
+        result = detector.process_frame(text_boxes)
+        
+        # 可选：记录日志
+        if log_file:
+            print(f"Layout detected: {result['layout']}", file=log_file)
+            print(f"Speaker A boxes: {len(result['A'])}", file=log_file)
+            print(f"Speaker B boxes: {len(result['B'])}", file=log_file)
+            print(f"Metadata: {result['metadata']}", file=log_file)
+        
+        return result
+    
+    def format_conversation_adaptive(self, text_boxes: List[TextBox], screen_width: int,
+                                    memory_path: str = None, log_file=None) -> tuple:
+        """
+        使用自适应检测器格式化对话
+        
+        这个方法是format_conversation的应用无关版本。
+        它返回与现有代码兼容的格式，但使用新的检测逻辑。
+        
+        Args:
+            text_boxes: TextBox对象列表
+            screen_width: 屏幕宽度（像素）
+            memory_path: 可选的记忆持久化路径
+            log_file: 可选的日志文件对象
+            
+        Returns:
+            (sorted_boxes, metadata) 元组:
+            - sorted_boxes: 按y坐标排序的文本框列表
+            - metadata: 包含布局信息和说话者分配的字典
+        """
+        # 使用新检测器
+        result = self.detect_chat_layout_adaptive(text_boxes, screen_width, memory_path, log_file)
+        
+        # 合并所有文本框并按y坐标排序
+        all_boxes = result['A'] + result['B']
+        sorted_boxes = self.sort_boxes_by_y(all_boxes)
+        
+        # 为每个文本框添加说话者标记
+        a_ids = {id(box) for box in result['A']}
+        for box in sorted_boxes:
+            if id(box) in a_ids:
+                box.speaker = 'A'
+            else:
+                box.speaker = 'B'
+        
+        # 构建元数据
+        metadata = {
+            'layout': result['layout'],
+            'speaker_A_count': len(result['A']),
+            'speaker_B_count': len(result['B']),
+            'confidence': result['metadata'].get('confidence', 1.0),
+            'frame_count': result['metadata'].get('frame_count', 0)
+        }
+        
+        return sorted_boxes, metadata
 
 class LayoutVisualizer:
     """版面分析结果可视化器"""

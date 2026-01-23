@@ -15,3 +15,5 @@ test_*/
 !/test_images/
 
 .pytest_cache/
+
+.hypothesis/
