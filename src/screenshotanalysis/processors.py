@@ -827,6 +827,16 @@ class ChatMessageProcessor:
         upper = main_height * (1 + MAIN_HEIGHT_TOLERANCE)
         return lower <= box.height <= upper
 
+    def _has_dominant_xmin_bin(self, boxes: list[TextBox], bin_size: int = 4, min_ratio: float = 0.35) -> bool:
+        if not boxes:
+            return False
+        xmins = np.array([box.x_min for box in boxes])
+        bins = (xmins // bin_size) * bin_size
+        _, counts = np.unique(bins, return_counts=True)
+        if counts.size == 0:
+            return False
+        return counts.max() / len(boxes) >= min_ratio
+
     def filter_by_rules_to_find_nickname(self, boxes_from_text_det:list[TextBox], padding, image_sizes, ratios, app_type, log_file=None):
         unfiltered_text_boxes = boxes_from_text_det
         filtered_text_boxes = []
@@ -835,7 +845,8 @@ class ChatMessageProcessor:
         main_height = self.estimate_main_text_height(boxes_from_text_det)
         if log_file:
             print(f"main_height:{main_height}", file = log_file)
-        if app_type == DISCORD:
+        if app_type == DISCORD and self._has_dominant_xmin_bin(unfiltered_text_boxes):
+
             # discord 都是聊天气泡靠左
             box_left = (w - padding[0] - padding[2]) * ratios[0] + padding[0] # 统计的气泡左边起点在新图片上的像素数值
             if log_file:
@@ -867,14 +878,15 @@ class ChatMessageProcessor:
         main_height = self.estimate_main_text_height(boxes_from_text_det)
         if log_file:
             print(f"main_height:{main_height}", file = log_file)
-        if app_type == DISCORD:
+        if app_type == DISCORD and self._has_dominant_xmin_bin(unfiltered_text_boxes):
             # discord 都是聊天气泡靠左
-            box_left = (w - padding[0] - padding[2]) * ratios[0] + padding[0] # 统计的气泡左边起点在新图片上的像素数值
+            box_left = (w - padding[0] - padding[2]) * ratios[0] + padding[0]
             if log_file:
                 print(f"box_left:{box_left}", file = log_file)
-            left_margin = MAGIC_MARGIN * 6
+            left_margin = MAGIC_MARGIN * 8
             height_lower = main_height * 0.5 if main_height is not None else None
             height_upper = main_height * 2.2 if main_height is not None else None
+
             for text_box in unfiltered_text_boxes:
                 if log_file:
                     print(f'current box: {text_box.box.tolist()}', file=log_file)

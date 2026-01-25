@@ -1,0 +1,215 @@
+{
+  "talker_nickname": "已审核",
+  "dialogs": [
+    {
+      "speaker": "talker",
+      "text": "已审核的Opening Move",
+      "box": [
+        31,
+        108,
+        190,
+        130
+      ],
+      "model_calls": {
+        "text_det": 1,
+        "layout_det": 1,
+        "text_rec": 1
+      }
+    },
+    {
+      "speaker": "user",
+      "text": "上一次带给你笑容的是什么",
+      "box": [
+        33,
+        137,
+        258,
+        157
+      ],
+      "model_calls": {
+        "text_det": 1,
+        "layout_det": 1,
+        "text_rec": 1
+      }
+    },
+    {
+      "speaker": "talker",
+      "text": "事？",
+      "box": [
+        29,
+        159,
+        65,
+        184
+      ],
+      "model_calls": {
+        "text_det": 1,
+        "layout_det": 1,
+        "text_rec": 1
+      }
+    },
+    {
+      "speaker": "user",
+      "text": "今天",
+      "box": [
+        173,
+        196,
+        210,
+        219
+      ],
+      "model_calls": {
+        "text_det": 1,
+        "layout_det": 1,
+        "text_rec": 1
+      }
+    },
+    {
+      "speaker": "user",
+      "text": "中彩票啦",
+      "box": [
+        269,
+        235,
+        352,
+        260
+      ],
+      "model_calls": {
+        "text_det": 1,
+        "layout_det": 1,
+        "text_rec": 1
+      }
+    },
+    {
+      "speaker": "user",
+      "text": "那真的很幸福了哈哈",
+      "box": [
+        32,
+        289,
+        206,
+        309
+      ],
+      "model_calls": {
+        "text_det": 1,
+        "layout_det": 1,
+        "text_rec": 1
+      }
+    },
+    {
+      "speaker": "user",
+      "text": "现在在干嘛呢",
+      "box": [
+        231,
+        338,
+        351,
+        362
+      ],
+      "model_calls": {
+        "text_det": 1,
+        "layout_det": 1,
+        "text_rec": 1
+      }
+    },
+    {
+      "speaker": "talker",
+      "text": "上班等下班了哈哈",
+      "box": [
+        33,
+        391,
+        187,
+        411
+      ],
+      "model_calls": {
+        "text_det": 1,
+        "layout_det": 1,
+        "text_rec": 1
+      }
+    },
+    {
+      "speaker": "talker",
+      "text": "你呢",
+      "box": [
+        27,
+        433,
+        77,
+        464
+      ],
+      "model_calls": {
+        "text_det": 1,
+        "layout_det": 1,
+        "text_rec": 1
+      }
+    },
+    {
+      "speaker": "user",
+      "text": "工作做完了，看点子书",
+      "box": [
+        155,
+        489,
+        349,
+        510
+      ],
+      "model_calls": {
+        "text_det": 1,
+        "layout_det": 1,
+        "text_rec": 1
+      }
+    },
+    {
+      "speaker": "user",
+      "text": "你的眼睛好漂亮啊",
+      "box": [
+        194,
+        536,
+        349,
+        557
+      ],
+      "model_calls": {
+        "text_det": 1,
+        "layout_det": 1,
+        "text_rec": 1
+      }
+    },
+    {
+      "speaker": "talker",
+      "text": "哈哈你也是呀",
+      "box": [
+        29,
+        584,
+        150,
+        610
+      ],
+      "model_calls": {
+        "text_det": 1,
+        "layout_det": 1,
+        "text_rec": 1
+      }
+    },
+    {
+      "speaker": "talker",
+      "text": "你这么早就工作了吗",
+      "box": [
+        32,
+        634,
+        205,
+        654
+      ],
+      "model_calls": {
+        "text_det": 1,
+        "layout_det": 1,
+        "text_rec": 1
+      }
+    },
+    {
+      "speaker": "talker",
+      "text": "是做什么的",
+      "box": [
+        30,
+        680,
+        131,
+        704
+      ],
+      "model_calls": {
+        "text_det": 1,
+        "layout_det": 1,
+        "text_rec": 1
+      }
+    }
+  ]
+}

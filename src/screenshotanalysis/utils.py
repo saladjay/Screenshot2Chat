@@ -184,17 +184,27 @@ class ImageLoader:
         """
         使用正则表达式检查字符串是否符合Base64格式。
         """
-        if not isinstance(s, str):
+        if not isinstance(base64_string, str):
             return False
         # Base64正则模式：允许字母、数字、'+'、'/'，以及最多两个'='填充符
         pattern = r'^[A-Za-z0-9+/]*={0,2}$'
         # 检查长度是否为4的倍数且符合字符集
-        return len(s) % 4 == 0 and re.match(pattern, s) is not None
+        return len(base64_string) % 4 == 0 and re.match(pattern, base64_string) is not None
 
     @staticmethod
     def load_image(input_value):
         if isinstance(input_value, Path):
             input_value = str(input_value)
+
+        if isinstance(input_value, str):
+            stripped = input_value.strip()
+            if len(stripped) >= 2 and stripped[0] == stripped[-1] and stripped[0] in {'"', "'"}:
+                stripped = stripped[1:-1]
+            normalized = stripped.replace("\\ ", " ")
+            if normalized != stripped and os.path.exists(normalized):
+                input_value = normalized
+            else:
+                input_value = stripped
 
         if ImageLoader._is_path(input_value):
             if Path(input_value).suffix.lower() in image_suffixes:

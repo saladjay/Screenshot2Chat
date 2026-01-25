@@ -88,6 +88,13 @@ def main():
         log_path = os.path.join(log_dir, f"{os.path.splitext(file_name)[0]}.txt")
         log_file = open(log_path, 'w', encoding='utf-8')
 
+        text_det_boxes = processor._get_all_text_boxes_from_text_det(text_det_results['results'])
+        sorted_text_det_boxes = processor.sort_boxes_by_y(text_det_boxes)
+        if not processor._has_dominant_xmin_bin(sorted_text_det_boxes):
+            log_file.write("skip discord logic: no dominant x_min bin\n")
+            log_file.close()
+            continue
+
         sorted_box, _ = processor.format_conversation(
             layout_det_results['results'],
             text_det_results['results'],

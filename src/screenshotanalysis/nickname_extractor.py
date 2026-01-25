@@ -305,3 +305,109 @@ def extract_nicknames_smart(
         logger.info(f"可视化结果已保存到: {output_path}")
     
     return top_candidates
+
+
+def extract_nicknames_from_text_boxes(
+    text_boxes: List,
+    image: np.ndarray,
+    processor,
+    text_rec=None,
+    ocr_reader=None,
+    draw_results: bool = False,
+    output_dir: str = "test_output/smart_nicknames",
+    top_k: int = 3,
+    image_path: str | None = None,
+) -> List[Dict[str, Any]]:
+    """
+    Extract nickname candidates from precomputed text boxes.
+
+    Args:
+        text_boxes: List of TextBox objects from text_det.
+        image: Letterboxed image array.
+        processor: ChatMessageProcessor instance.
+        text_rec: Optional OCR model (required if ocr_reader is None).
+        ocr_reader: Optional callable returning (text, score) for a TextBox.
+        draw_results: Whether to draw visualization results.
+        output_dir: Output directory for visualization.
+        top_k: Number of top candidates to return.
+    """
+    if not text_boxes:
+        return []
+
+    screen_height, screen_width = image.shape[:2]
+
+    if ocr_reader is None:
+        if text_rec is None:
+            from screenshotanalysis.core import ChatTextRecognition
+
+            text_rec = ChatTextRecognition(model_name="PP-OCRv5_server_rec", lang="en")
+            text_rec.load_model()
+
+        def ocr_reader(box):
+            x_min, y_min, x_max, y_max = int(box.x_min), int(box.y_min), int(box.x_max), int(box.y_max)
+            h, w = image.shape[:2]
+            x_min = max(0, x_min)
+            y_min = max(0, y_min)
+            x_max = min(w, x_max)
+            y_max = min(h, y_max)
+            if x_max <= x_min or y_max <= y_min:
+                return "", 0.0
+            cropped_image = image[y_min:y_max, x_min:x_max]
+            ocr_result = text_rec.predict_text(cropped_image)
+            if not ocr_result:
+                return "", 0.0
+            first_result = ocr_result[0]
+            if isinstance(first_result, dict):
+                return first_result.get("rec_text", ""), first_result.get("rec_score", 0.0)
+            if isinstance(first_result, tuple):
+                return first_result[0], first_result[1] if len(first_result) > 1 else 0.0
+            return str(first_result), 0.0
+
+    filtered_boxes = []
+    edge_boxes = []
+    for box in text_boxes:
+        if processor._is_extreme_edge_box(box, screen_width, screen_height):
+            edge_boxes.append(box)
+        else:
+            filtered_boxes.append(box)
+
+    top_region_boundary = screen_height * 0.20
+    top_boxes = [box for box in filtered_boxes if box.y_min < top_region_boundary]
+
+    if not top_boxes:
+        return []
+
+    sorted_top_boxes = sorted(top_boxes, key=lambda b: b.y_min)
+    box_to_rank = {id(box): rank + 1 for rank, box in enumerate(sorted_top_boxes)}
+
+    candidates = []
+    for box in top_boxes:
+        text, ocr_score = ocr_reader(box)
+        cleaned_text = text.rstrip(">< |\t\n\r")
+        if not cleaned_text:
+            continue
+        y_rank = box_to_rank.get(id(box), None)
+        nickname_score, score_breakdown = processor._calculate_nickname_score(
+            box, cleaned_text, screen_width, screen_height, y_rank=y_rank
+        )
+        candidates.append(
+            {
+                "text": cleaned_text,
+                "ocr_score": ocr_score,
+                "nickname_score": nickname_score,
+                "score_breakdown": score_breakdown,
+                "box": box.box.tolist(),
+                "center_x": box.center_x,
+                "y_min": box.y_min,
+                "y_rank": y_rank,
+            }
+        )
+
+    candidates.sort(key=lambda x: x["nickname_score"], reverse=True)
+    top_candidates = candidates[:top_k]
+
+    if draw_results and top_candidates and image_path:
+        output_path = draw_top3_results(image_path, top_candidates, output_dir)
+        logger.info(f"可视化结果已保存到: {output_path}")
+
+    return top_candidates
