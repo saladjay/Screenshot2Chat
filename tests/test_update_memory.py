@@ -186,7 +186,8 @@ def test_update_memory_persistence():
         temp_path = f.name
     
     try:
-        detector = ChatLayoutDetector(screen_width=720, memory_path=temp_path)
+        # Use save_interval=1 to trigger save on first update
+        detector = ChatLayoutDetector(screen_width=720, memory_path=temp_path, save_interval=1)
         
         # Create boxes
         boxes_a = [TextBox(box=[100, 100, 200, 150], score=0.9)]
@@ -194,7 +195,7 @@ def test_update_memory_persistence():
         
         assigned = {"A": boxes_a, "B": boxes_b}
         
-        # Update memory (should trigger save)
+        # Update memory (should trigger save with save_interval=1)
         detector.update_memory(assigned)
         
         # Check that file was created and contains valid JSON

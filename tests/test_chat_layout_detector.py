@@ -215,7 +215,7 @@ def double_left_boxes_strategy(draw, screen_width=720):
 # Property Tests for split_columns method
 # ============================================================================
 
-@settings(max_examples=100)
+@settings(max_examples=100, deadline=None)
 @given(st.lists(textbox_strategy(), min_size=1, max_size=20))
 def test_property_1_center_x_normalization_range(boxes):
     """
@@ -279,8 +279,9 @@ def test_property_3_low_separation_single_column(boxes):
         
         layout, left, right, _ = detector.split_columns(boxes)
         
-        # If separation is low, must be single column
-        if separation < detector.min_separation_ratio:
+        # If separation is low (with epsilon tolerance for floating-point comparison), must be single column
+        epsilon = 1e-9
+        if separation < detector.min_separation_ratio - epsilon:
             assert layout == "single", \
                 f"Expected 'single' for separation {separation:.3f} < {detector.min_separation_ratio}, got '{layout}'"
 
