@@ -110,7 +110,7 @@ class TestLayoutAnalysis:
                 layout_det_results = layout_det_analyzer.analyze_chat_screenshot(image_path)
                 padding = list(map(float, text_det_results['padding'])) 
                 image_sizes = list(map(float, text_det_results['image_size'])) 
-                sorted_box = layout_postprocess.format_conversation(layout_det_results['results'], text_det_results['results'], padding, image_sizes, ratios = ratios, app_type = DISCORD, log_file = log_file)
+                sorted_box, _ = layout_postprocess.format_conversation(layout_det_results['results'], text_det_results['results'], padding, image_sizes, ratios = ratios, app_type = DISCORD, log_file = log_file)
                 nickname_box = layout_postprocess.get_nickname_box_from_text_det_boxes(text_det_results['results'], padding, image_sizes, ratios, app_type)
                 nickname = None
                 image = np.array(ImageLoader.load_image(image_path))

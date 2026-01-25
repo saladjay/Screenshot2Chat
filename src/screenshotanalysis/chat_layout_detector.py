@@ -259,7 +259,8 @@ class ChatLayoutDetector:
             separation_ratio = right_center - left_center
             
             # 5. 如果分离度<min_separation_ratio，判定为单列
-            if separation_ratio < self.min_separation_ratio:
+            # Use a small epsilon to handle floating-point precision issues at the boundary
+            if separation_ratio < self.min_separation_ratio - 1e-9:
                 return "single", list(boxes), [], None
             
             # 6. 判定为双列，并根据聚类中心位置判断子类型

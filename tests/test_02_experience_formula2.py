@@ -97,7 +97,7 @@ class TestExperienceFormula:
                     image_sizes = text_det_results['image_size']
                     layout_postprocess = ChatMessageProcessor()
                     _, ratios = load_data(app_type)
-                    text_boxes = layout_postprocess.format_conversation(layout_det_results['results'], text_det_results['results'], padding, image_sizes, ratios = ratios, app_type = app_type, log_file = log_file)
+                    text_boxes, _ = layout_postprocess.format_conversation(layout_det_results['results'], text_det_results['results'], padding, image_sizes, ratios = ratios, app_type = app_type, log_file = log_file)
                     for box in text_boxes:
                         image = cv2.rectangle(image, 
                                     (box.x_min, box.y_min), 
