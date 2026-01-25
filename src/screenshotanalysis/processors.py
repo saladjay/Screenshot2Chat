@@ -415,14 +415,16 @@ class ChatMessageProcessor:
         else:
             original_text_boxes = [layout_det_text_boxes_np, text_det_text_boxes_np]
         sorted_text_det_text_boxes = self.sort_boxes_by_y(text_det_text_boxes)
+        if log_file:
+            for b in sorted_text_det_text_boxes:
+                print(b.box.tolist(), file=log_file)
+        if app_type == DISCORD and self._has_dominant_xmin_bin(sorted_text_det_text_boxes):
 
-        if app_type == DISCORD:
-            filtered_text_boxes = self.filter_by_min_x_and_max_x_and_main_height(sorted_text_det_text_boxes, padding, image_sizes, ratios, app_type)
+            filtered_text_boxes = self.filter_by_min_x_and_max_x_and_main_height(sorted_text_det_text_boxes, padding, image_sizes, ratios, app_type, log_file)
             avatar_boxes = self._get_all_avatar_boxes_from_layout_det(layout_det_results)
             sorted_avatar_boxes = self.sort_boxes_by_y(avatar_boxes)
             sorted_box = self.discord_group_text(sorted_avatar_boxes, filtered_text_boxes, log_file)
             return sorted_box, original_text_boxes
-        
         else:
             iou_matrix = self._boxes_coverage(text_det_text_boxes_np, layout_det_text_boxes_np)
             if log_file:
@@ -443,6 +445,103 @@ class ChatMessageProcessor:
                             print(f'{text_det_text_boxes[i].box.tolist()} : {layout_det_text_boxes[index].layout_det} iou:{iou_matrix[i, index]}', file=log_file) 
                     filtered_text_det_boxes.append(text_det_text_boxes[i])
             return self.sort_boxes_by_y(filtered_text_det_boxes), original_text_boxes
+
+    def format_conversation_app_agnostic(
+        self,
+        layout_det_results,
+        text_det_results,
+        screen_width: int,
+        memory_path: str = None,
+        coverage_threshold: float = 0.15,
+        coverage_keep_ratio: float = 0.35,
+        enable_height_filter: bool = True,
+        height_bin_size: int = 3,
+        height_tolerance_px: int = 4,
+        min_height_keep_ratio: float = 0.4,
+        log_file=None
+    ) -> tuple:
+        """
+        App无关的对话格式化：使用layout_det过滤text_det，再调用自适应检测器。
+
+        Args:
+            layout_det_results: layout_det模型输出
+            text_det_results: text_det模型输出
+            screen_width: 屏幕宽度（像素）
+            memory_path: 可选的记忆持久化路径
+            coverage_threshold: coverage过滤阈值
+            coverage_keep_ratio: coverage过滤后的最小保留比例
+            enable_height_filter: 是否启用高度过滤
+            height_bin_size: 文本高度量化的bin大小
+            height_tolerance_px: 文本高度容忍度（像素）
+            min_height_keep_ratio: 最小高度保持比率
+            log_file: 可选日志文件
+
+        Returns:
+            (sorted_boxes, metadata) 元组
+        """
+        layout_det_text_boxes = self._get_all_boxes_from_layout_det(layout_det_results, special_types=['text'])
+        text_det_text_boxes = self._get_all_text_boxes_from_text_det(text_det_results)
+
+        if not text_det_text_boxes:
+            return [], {
+                'layout': 'single',
+                'speaker_A_count': 0,
+                'speaker_B_count': 0,
+                'confidence': 0.0,
+                'frame_count': 0
+            }
+
+        if not layout_det_text_boxes:
+            return self.format_conversation_adaptive(
+                text_boxes=text_det_text_boxes,
+                screen_width=screen_width,
+                memory_path=memory_path,
+                log_file=log_file
+            )
+
+        main_height = self.estimate_main_text_height(text_det_text_boxes, bin_size=height_bin_size)
+        if enable_height_filter and main_height is not None:
+            height_filtered = [
+                box for box in text_det_text_boxes
+                if abs(box.height - main_height) <= height_tolerance_px
+            ]
+            if height_filtered:
+                text_det_text_boxes = height_filtered
+                # keep_ratio = len(height_filtered) / max(len(text_det_text_boxes), 1)
+                # if keep_ratio >= min_height_keep_ratio:
+                #     text_det_text_boxes = height_filtered
+
+        layout_det_text_boxes_np = np.array([text_box.box for text_box in layout_det_text_boxes])
+        text_det_text_boxes_np = np.array([text_box.box for text_box in text_det_text_boxes])
+        coverage_matrix = self._boxes_coverage(text_det_text_boxes_np, layout_det_text_boxes_np)
+
+        if log_file:
+            print(
+                f'text_det shape {text_det_text_boxes_np.shape} '
+                f'layout_det shape {layout_det_text_boxes_np.shape} '
+                f'coverage matrix {coverage_matrix.shape}',
+                file=log_file
+            )
+
+        mask = coverage_matrix > coverage_threshold
+        filtered_text_det_boxes = []
+        for i in range(coverage_matrix.shape[0]):
+            if np.any(mask[i]):
+                filtered_text_det_boxes.append(text_det_text_boxes[i])
+
+        if not filtered_text_det_boxes:
+            filtered_text_det_boxes = text_det_text_boxes
+        else:
+            keep_ratio = len(filtered_text_det_boxes) / max(len(text_det_text_boxes), 1)
+            if keep_ratio < coverage_keep_ratio:
+                filtered_text_det_boxes = text_det_text_boxes
+
+        return self.format_conversation_adaptive(
+            text_boxes=filtered_text_det_boxes,
+            screen_width=screen_width,
+            memory_path=memory_path,
+            log_file=log_file
+        )
 
     def sort_boxes_by_y(self, boxes:list[TextBox]) -> list[TextBox]:
         return sorted(boxes, key=lambda b: b.y_min)
@@ -488,8 +587,42 @@ class ChatMessageProcessor:
 
 
     def is_same_group(prev: TextBox, curr: TextBox, y_threshold: float, x_threshold: float):
-        pass
+        return curr.y_min <= (prev.y_max + y_threshold)
 
+    def group_text_boxes_by_y(
+        self,
+        boxes: list[TextBox],
+        y_threshold: float = 12.0,
+        height_ratio: float = 0.6
+    ) -> list[list[TextBox]]:
+        if not boxes:
+            return []
+        main_height = self.estimate_main_text_height(boxes)
+        if main_height is not None:
+            y_threshold = max(y_threshold, main_height * height_ratio)
+        sorted_boxes = sorted(boxes, key=lambda b: b.y_min)
+        groups: list[list[TextBox]] = []
+        current_group: list[TextBox] = []
+        current_group_max_y = None
+
+        for box in sorted_boxes:
+            if not current_group:
+                current_group = [box]
+                current_group_max_y = box.y_max
+                continue
+
+            if box.y_min <= (current_group_max_y + y_threshold):
+                current_group.append(box)
+                current_group_max_y = max(current_group_max_y, box.y_max)
+            else:
+                groups.append(current_group)
+                current_group = [box]
+                current_group_max_y = box.y_max
+
+        if current_group:
+            groups.append(current_group)
+
+        return groups
     def estimate_main_value(self, boxes:list[TextBox], selected_property, bin_size=2, log_file=None):
         assert selected_property in ['x_min', 'y_min', 'x_max', 'y_max', 'width', 'height', 'area', 'center_x', 'center_y'], 'estimate_main_value函数只能作用于代码里设定好的属性'
         def collect_areas(boxes):
@@ -578,17 +711,18 @@ class ChatMessageProcessor:
             box_left = (w - padding[0] - padding[2]) * ratios[0] + padding[0] # 统计的气泡左边起点在新图片上的像素数值
             if log_file:
                 print(f"box_left:{box_left}", file = log_file)
+            left_margin = MAGIC_MARGIN * 8
             for text_box in unfiltered_text_boxes:
                 if log_file:
                     print(f'current box: {text_box.box.tolist()}', file=log_file)
-                    print(f'condition (box_left - MAGIC_MARGIN) < text_box.x_min: {(box_left - MAGIC_MARGIN) < text_box.x_min}', file=log_file)
+                    print(f'condition (box_left - left_margin) < text_box.x_min: {(box_left - left_margin) < text_box.x_min}', file=log_file)
                     print(f'condition text_box.y_max < 0.25 * h:{text_box.y_max < (0.25 * h)}', file=log_file)
-                if (box_left - MAGIC_MARGIN) < text_box.x_min and text_box.y_max < (0.25 * h):
+                if (box_left - left_margin) < text_box.x_min and text_box.y_max < (0.25 * h):
                     filtered_text_boxes.append(text_box)
             return filtered_text_boxes
         else:
-            box_left = (w - padding[0] - padding[2]) * ratios[0] + padding[0] # 统计的气泡左边起点在新图片上的像素数值
-            box_right = (w - padding[0] - padding[2]) * ratios[2] + padding[0] # 统计的气泡右边终点在新图片上的像素数值
+            box_left = (w - padding[0] - padding[2]) * ratios[2] + padding[0] # 统计的气泡左边起点在新图片上的像素数值, talker left start
+            box_right = (w - padding[0] - padding[2]) * ratios[1] + padding[0] # 统计的气泡右边终点在新图片上的像素数值, user right end
             for text_box in unfiltered_text_boxes:
                 if text_box.x_min > (box_left - MAGIC_MARGIN) and text_box.x_min < (box_left + MAGIC_MARGIN):
                     filtered_text_boxes.append(text_box)
@@ -609,14 +743,17 @@ class ChatMessageProcessor:
             box_left = (w - padding[0] - padding[2]) * ratios[0] + padding[0] # 统计的气泡左边起点在新图片上的像素数值
             if log_file:
                 print(f"box_left:{box_left}", file = log_file)
+            left_margin = MAGIC_MARGIN * 6
+            height_lower = main_height * 0.5 if main_height is not None else None
+            height_upper = main_height * 2.2 if main_height is not None else None
             for text_box in unfiltered_text_boxes:
                 if log_file:
                     print(f'current box: {text_box.box.tolist()}', file=log_file)
-                    print(f'condition (box_left - MAGIC_MARGIN) < text_box.x_min: {(box_left - MAGIC_MARGIN) < text_box.x_min}', file=log_file)
-                    print(f'condition (box_left + MAGIC_MARGIN) < text_box.x_min: {text_box.x_min < (box_left + MAGIC_MARGIN)}', file=log_file)
+                    print(f'condition (box_left - left_margin) < text_box.x_min: {(box_left - left_margin) < text_box.x_min}', file=log_file)
+                    print(f'condition (box_left + left_margin) < text_box.x_min: {text_box.x_min < (box_left + left_margin)}', file=log_file)
                     print(f'condition self.filter_by_text_height(main_height, text_box): {self.filter_by_text_height(main_height, text_box)}', file=log_file)
 
-                if (box_left - MAGIC_MARGIN) < text_box.x_min < (box_left + MAGIC_MARGIN) and self.filter_by_text_height(main_height, text_box):
+                if (box_left - left_margin) < text_box.x_min < (box_left + left_margin) and (height_lower is None or height_lower <= text_box.height) and (height_upper is None or text_box.height <= height_upper):
                     filtered_text_boxes.append(text_box)
             return filtered_text_boxes
         else:
@@ -762,13 +899,17 @@ class ChatMessageProcessor:
             else:
                 box.speaker = 'B'
         
+        grouped_boxes = self.group_text_boxes_by_y(sorted_boxes)
+
         # 构建元数据
         metadata = {
             'layout': result['layout'],
             'speaker_A_count': len(result['A']),
             'speaker_B_count': len(result['B']),
             'confidence': result['metadata'].get('confidence', 1.0),
-            'frame_count': result['metadata'].get('frame_count', 0)
+            'frame_count': result['metadata'].get('frame_count', 0),
+            'group_count': len(grouped_boxes),
+            'groups': grouped_boxes
         }
         
         return sorted_boxes, metadata

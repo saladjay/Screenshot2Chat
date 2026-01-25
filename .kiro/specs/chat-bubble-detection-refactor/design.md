@@ -37,6 +37,15 @@ graph TD
 5. 更新记忆并持久化
 6. 返回结构化结果
 
+## Decision Rationale: 历史KMeans与单图fallback
+
+为确保在“无应用类型先验”的前提下稳定区分左右说话者，系统采用“历史KMeans + 单图median fallback”的策略：
+
+1. **单图场景不稳定的原因**：样本少、分布不完整、离群点(emoji/标点/OCR抖动)会让KMeans在单张截图上产生强烈波动。
+2. **跨截图历史数据更稳定**：同一设备/同一应用的center_x分布高度稳定，KMeans适合用于学习左右列中心。目前同一设备的同一个应用的图片最多有九张。
+3. **KMeans的cluster_id无语义**：必须使用cluster_center的x大小排序来确定left/right，而不是依赖cluster_id。
+4. **fallback策略**：当历史数据不足(如<50个TextBox)或出现单侧说话时，使用median(center_x)作为稳健分割方法。
+
 ## Components and Interfaces
 
 ### 1. ChatLayoutDetector 类

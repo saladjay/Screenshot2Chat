@@ -255,6 +255,45 @@ class TestIntegrationCompatibility:
         assert 'layout' in metadata, "元数据应该包含layout"
         assert 'speaker_A_count' in metadata, "元数据应该包含speaker_A_count"
         assert 'speaker_B_count' in metadata, "元数据应该包含speaker_B_count"
+
+    def test_format_conversation_app_agnostic_basic(self):
+        """
+        测试format_conversation_app_agnostic的基本调用
+
+        验证layout_det/text_det输入可以得到排序后的TextBox与metadata。
+        """
+        processor = ChatMessageProcessor()
+
+        layout_det_results = [
+            {
+                "boxes": [
+                    {"label": "text", "score": 0.9, "coordinate": [100, 100, 200, 140]},
+                    {"label": "text", "score": 0.9, "coordinate": [500, 200, 600, 240]},
+                ]
+            }
+        ]
+
+        text_det_results = [
+            {
+                "dt_polys": [
+                    [[100, 100], [200, 100], [200, 140], [100, 140]],
+                    [[500, 200], [600, 200], [600, 240], [500, 240]],
+                ],
+                "dt_scores": [0.9, 0.9],
+            }
+        ]
+
+        sorted_boxes, metadata = processor.format_conversation_app_agnostic(
+            layout_det_results=layout_det_results,
+            text_det_results=text_det_results,
+            screen_width=720
+        )
+
+        assert isinstance(sorted_boxes, list), "应该返回排序后的文本框列表"
+        assert isinstance(metadata, dict), "应该返回metadata"
+        assert len(sorted_boxes) == 2, "应保留两条文本框"
+        assert "layout" in metadata, "metadata应包含layout"
+        assert all(hasattr(box, "speaker") for box in sorted_boxes), "文本框应包含speaker属性"
     
     def test_memory_persistence_does_not_affect_old_code(self):
         """

@@ -10,10 +10,13 @@ wheels/
 .venv
 
 test_*/
+example_app_agnostic_*/
+example_*/
 */__pycache__/
 !/tests/*.py
 !/test_images/
-
+!/test_images_answer/
+# !/test_nickname/
 .pytest_cache/
 
 .hypothesis/

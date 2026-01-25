@@ -10,6 +10,10 @@
 - **完全应用无关** - 不依赖任何应用类型或配置文件
 - **跨截图一致性** - 通过记忆学习保持说话者身份稳定
 
+补充说明：
+- 单图场景易受样本不足、离群点影响，KMeans不稳定时优先使用median(center_x)分割。
+- KMeans结果需按cluster_center的x值排序来确定left/right，避免依赖cluster_id。
+
 ## Tasks
 
 - [x] 1. 创建核心ChatLayoutDetector类框架
