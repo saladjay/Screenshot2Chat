@@ -18,6 +18,6 @@ example_*/
 !/test_images_answer/
 # !/test_nickname/
 .pytest_cache/
-dialog_draws/
-dialog_outputs/
+dialog_draws*/
+dialog_outputs*/
 .hypothesis/

@@ -1,14 +1,15 @@
 """
-Single-image chat dialog pipeline.
+Single-image chat dialog pipeline (dialog_pipeline2).
 
-Runs app-agnostic dialog assignment and nickname extraction with minimal
-model inference, returning output in output_example.json format and
-tracking per-textbox model usage.
+Mirrors dialog_pipeline but uses the demo "final" output selection:
+- double layouts use layout_det boxes
+- single layouts use app-agnostic final boxes
 """
 
 from __future__ import annotations
 
 import os
+import time
 from typing import Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
@@ -46,6 +47,24 @@ def analyze_chat_image(
         output_payload: dict in output_example.json format (with optional model_calls)
         model_calls: mapping from dialog index to model call counts
     """
+    timings: Dict[str, List[float]] = {
+        "total": [0, 0.0],
+        "preprocess": [0, 0.0],
+        "nickname_extract": [0, 0.0],
+        "text_det": [0, 0.0],
+        "layout_det": [0, 0.0],
+        "format_conversation": [0, 0.0],
+        "layout_postprocess": [0, 0.0],
+        "dialog_ocr": [0, 0.0],
+    }
+    
+
+    def add_timing(stage: str, duration: float, count: int = 1) -> None:
+        timings[stage][0] = count + timings[stage][0]
+        timings[stage][1] = duration + timings[stage][1]
+        if stage != 'dialog_ocr':
+            print(f'{stage}: {duration} (calls: {count})')
+
     if processor is None:
         processor = ChatMessageProcessor()
     if text_det_analyzer is None:
@@ -57,18 +76,26 @@ def analyze_chat_image(
     if text_rec is None:
         text_rec = ChatTextRecognition(model_name="PP-OCRv5_server_rec", lang="en")
         text_rec.load_model()
-
+    total_start = time.perf_counter()
     speaker_map = speaker_map or {"A": "talker", "B": "user", None: "user"}
 
+    preprocess_start = time.perf_counter()
     image = ImageLoader.load_image(image_path)
     if image.mode == "RGBA":
         image = image.convert("RGB")
     image = np.array(image)
     image, padding = letterbox(image)
+    print(image.shape)
+    add_timing("preprocess", time.perf_counter() - preprocess_start)
 
-    preprocess_dict = {"letterbox":True, "padding":padding}
+    preprocess_dict = {"letterbox": True, "padding": padding}
+    text_det_start = time.perf_counter()
     text_det_results = text_det_analyzer.analyze_chat_screenshot(image, **preprocess_dict)
+    add_timing("text_det", time.perf_counter() - text_det_start)
+
+    layout_det_start = time.perf_counter()
     layout_det_results = layout_det_analyzer.analyze_chat_screenshot(image, **preprocess_dict)
+    add_timing("layout_det", time.perf_counter() - layout_det_start)
 
     screen_width = int(text_det_results["image_size"][0])
 
@@ -98,7 +125,9 @@ def analyze_chat_image(
         if text_image.size == 0:
             ocr_cache[key] = ("", 0.0)
             return ocr_cache[key]
+        ocr_start = time.perf_counter()
         text_output = text_rec.predict_text(text_image)
+        add_timing("dialog_ocr", time.perf_counter() - ocr_start)
         if track_model_calls:
             model_call_by_box.setdefault(key, {"text_det": 0, "layout_det": 0, "text_rec": 0})
             model_call_by_box[key]["text_rec"] += 1
@@ -110,7 +139,8 @@ def analyze_chat_image(
         score = first.get("rec_score", 0.0) if isinstance(first, dict) else 0.0
         ocr_cache[key] = (text_value, score)
         return ocr_cache[key]
-
+    
+    nickname_extract_start = time.perf_counter()
     nickname_candidates = extract_nicknames_from_text_boxes(
         text_boxes=sorted_text_det_boxes,
         image=image,
@@ -120,8 +150,10 @@ def analyze_chat_image(
         draw_results=False,
         image_path=image_path,
     )
+    add_timing("nickname_extract", time.perf_counter() - nickname_extract_start)
     talker_nickname = nickname_candidates[0]["text"] if nickname_candidates else ""
 
+    format_start = time.perf_counter()
     sorted_boxes, metadata = processor.format_conversation_app_agnostic(
         layout_det_results=layout_det_results["results"],
         text_det_results=text_det_results["results"],
@@ -134,7 +166,9 @@ def analyze_chat_image(
         ocr_reader=ocr_reader,
         talker_nickname=talker_nickname or None,
     )
+    add_timing("format_conversation", time.perf_counter() - format_start)
 
+    layout_post_start = time.perf_counter()
     layout_text_boxes = select_layout_text_boxes(
         processor,
         layout_det_results["results"],
@@ -151,11 +185,15 @@ def analyze_chat_image(
         image.shape[1],
     )
     assign_speaker_by_edges(layout_text_boxes, image.shape[1])
+    add_timing("layout_postprocess", time.perf_counter() - layout_post_start)
+
+    layout_name = metadata.get("layout", "")
+    final_boxes = layout_text_boxes if layout_name.startswith("double") else sorted_boxes
 
     dialogs: List[Dict] = []
     model_calls_by_dialog: Dict[int, Dict[str, int]] = {}
 
-    for idx, box in enumerate(sorted_boxes):
+    for idx, box in enumerate(final_boxes):
         text_value, _ = ocr_reader(box)
         speaker = speaker_map.get(box.speaker, speaker_map.get(None, "user"))
         dialog = {
@@ -170,9 +208,12 @@ def analyze_chat_image(
             model_calls_by_dialog[idx] = dialog["model_calls"]
         dialogs.append(dialog)
 
+    add_timing("total", time.perf_counter() - total_start)
+
     output_payload = {
         "talker_nickname": talker_nickname,
         "dialogs": dialogs,
+        "timings": timings,
     }
 
     if output_path:
@@ -184,7 +225,7 @@ def analyze_chat_image(
     if draw_output_path:
         draw_dialog_overlays(
             image=image,
-            boxes=layout_text_boxes,
+            boxes=final_boxes,
             nickname_candidate=nickname_candidates[0] if nickname_candidates else None,
             output_path=draw_output_path,
             speaker_map=speaker_map,
@@ -258,11 +299,11 @@ def draw_dialog_overlays(
 
 def iter_image_paths(input_path: str) -> Iterable[str]:
     if os.path.isdir(input_path):
-        for name in sorted(os.listdir(input_path)):
-            if not name.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tif", ".tiff")):
-                continue
-            yield os.path.join(input_path, name)
-    else:
+        for fname in os.listdir(input_path):
+            if fname.lower().endswith((".png", ".jpg", ".jpeg")):
+                yield os.path.join(input_path, fname)
+        return
+    if os.path.isfile(input_path):
         yield input_path
 
 
@@ -270,21 +311,13 @@ def analyze_chat_images(
     input_path: str,
     output_dir: str,
     draw_dir: Optional[str] = None,
-    track_model_calls: bool = True,
 ) -> List[Dict]:
     os.makedirs(output_dir, exist_ok=True)
     if draw_dir:
         os.makedirs(draw_dir, exist_ok=True)
 
-    processor = ChatMessageProcessor()
-    text_det_analyzer = ChatLayoutAnalyzer(model_name="PP-OCRv5_server_det")
-    text_det_analyzer.load_model()
-    layout_det_analyzer = ChatLayoutAnalyzer(model_name="PP-DocLayoutV2")
-    layout_det_analyzer.load_model()
-    text_rec = ChatTextRecognition(model_name="PP-OCRv5_server_rec", lang="en")
-    text_rec.load_model()
-
-    outputs = []
+    outputs: List[Dict] = []
+    timing_sums: Dict[str, List[float]] = {}
     for image_path in iter_image_paths(input_path):
         base_name = os.path.splitext(os.path.basename(image_path))[0]
         output_path = os.path.join(output_dir, f"{base_name}.json")
@@ -295,13 +328,18 @@ def analyze_chat_images(
             image_path=image_path,
             output_path=output_path,
             draw_output_path=draw_output_path,
-            text_det_analyzer=text_det_analyzer,
-            layout_det_analyzer=layout_det_analyzer,
-            text_rec=text_rec,
-            processor=processor,
-            track_model_calls=track_model_calls,
         )
         outputs.append(output_payload)
+        for key, value in output_payload.get("timings", {}).items():
+            timing_sums.setdefault(key, [0, 0.0])
+            timing_sums[key][0] += float(value[0])
+            timing_sums[key][1] += float(value[1])
+
+    if outputs and timing_sums:
+        print("Average timings (s):")
+        for key, value in sorted(timing_sums.items()):
+            avg_time = value[1] / len(outputs)
+            print(f"  {key}: {avg_time:.4f} (calls: {int(value[0])})")
     return outputs
 
 
@@ -314,7 +352,7 @@ if __name__ == "__main__":
     parser.add_argument("--output-dir", default="dialog_outputs", help="Output directory for batch JSON")
     parser.add_argument("--draw-dir", default=None, help="Optional directory for overlay images")
     args = parser.parse_args()
-
+    start_time = time.perf_counter()
     if os.path.isdir(args.input_path):
         analyze_chat_images(
             input_path=args.input_path,
@@ -327,8 +365,14 @@ if __name__ == "__main__":
             os.makedirs(args.draw_dir, exist_ok=True)
             base_name = os.path.splitext(os.path.basename(args.input_path))[0]
             draw_output_path = os.path.join(args.draw_dir, f"{base_name}.png")
-        analyze_chat_image(
+        output_payload, _ = analyze_chat_image(
             image_path=args.input_path,
             output_path=args.output,
             draw_output_path=draw_output_path,
         )
+        if output_payload.get("timings"):
+            print("Timings (s):")
+            for key, value in sorted(output_payload["timings"].items()):
+                print(f"  {key}: {value[1]:.4f} (calls: {int(value[0])})")
+    end_time = time.perf_counter()
+    print(f"excute total time: {end_time - start_time:.4f}s")

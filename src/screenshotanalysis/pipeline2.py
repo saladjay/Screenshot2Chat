@@ -1,9 +1,9 @@
 """
-Single-image chat dialog pipeline.
+Single-image chat dialog pipeline (pipeline2).
 
-Runs app-agnostic dialog assignment and nickname extraction with minimal
-model inference, returning output in output_example.json format and
-tracking per-textbox model usage.
+Mirrors dialog_pipeline.analyze_chat_image but uses the demo "final" output
+selection: double layouts use layout_det boxes, single layouts use the
+app-agnostic final boxes.
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ def analyze_chat_image(
     image = np.array(image)
     image, padding = letterbox(image)
 
-    preprocess_dict = {"letterbox":True, "padding":padding}
+    preprocess_dict = {"letterbox": True, "padding": padding}
     text_det_results = text_det_analyzer.analyze_chat_screenshot(image, **preprocess_dict)
     layout_det_results = layout_det_analyzer.analyze_chat_screenshot(image, **preprocess_dict)
 
@@ -152,10 +152,13 @@ def analyze_chat_image(
     )
     assign_speaker_by_edges(layout_text_boxes, image.shape[1])
 
+    layout_name = metadata.get("layout", "")
+    final_boxes = layout_text_boxes if layout_name.startswith("double") else sorted_boxes
+
     dialogs: List[Dict] = []
     model_calls_by_dialog: Dict[int, Dict[str, int]] = {}
 
-    for idx, box in enumerate(sorted_boxes):
+    for idx, box in enumerate(final_boxes):
         text_value, _ = ocr_reader(box)
         speaker = speaker_map.get(box.speaker, speaker_map.get(None, "user"))
         dialog = {
@@ -184,7 +187,7 @@ def analyze_chat_image(
     if draw_output_path:
         draw_dialog_overlays(
             image=image,
-            boxes=layout_text_boxes,
+            boxes=final_boxes,
             nickname_candidate=nickname_candidates[0] if nickname_candidates else None,
             output_path=draw_output_path,
             speaker_map=speaker_map,
@@ -258,77 +261,9 @@ def draw_dialog_overlays(
 
 def iter_image_paths(input_path: str) -> Iterable[str]:
     if os.path.isdir(input_path):
-        for name in sorted(os.listdir(input_path)):
-            if not name.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tif", ".tiff")):
-                continue
-            yield os.path.join(input_path, name)
-    else:
+        for fname in os.listdir(input_path):
+            if fname.lower().endswith((".png", ".jpg", ".jpeg")):
+                yield os.path.join(input_path, fname)
+        return
+    if os.path.isfile(input_path):
         yield input_path
-
-
-def analyze_chat_images(
-    input_path: str,
-    output_dir: str,
-    draw_dir: Optional[str] = None,
-    track_model_calls: bool = True,
-) -> List[Dict]:
-    os.makedirs(output_dir, exist_ok=True)
-    if draw_dir:
-        os.makedirs(draw_dir, exist_ok=True)
-
-    processor = ChatMessageProcessor()
-    text_det_analyzer = ChatLayoutAnalyzer(model_name="PP-OCRv5_server_det")
-    text_det_analyzer.load_model()
-    layout_det_analyzer = ChatLayoutAnalyzer(model_name="PP-DocLayoutV2")
-    layout_det_analyzer.load_model()
-    text_rec = ChatTextRecognition(model_name="PP-OCRv5_server_rec", lang="en")
-    text_rec.load_model()
-
-    outputs = []
-    for image_path in iter_image_paths(input_path):
-        base_name = os.path.splitext(os.path.basename(image_path))[0]
-        output_path = os.path.join(output_dir, f"{base_name}.json")
-        draw_output_path = None
-        if draw_dir:
-            draw_output_path = os.path.join(draw_dir, f"{base_name}.png")
-        output_payload, _ = analyze_chat_image(
-            image_path=image_path,
-            output_path=output_path,
-            draw_output_path=draw_output_path,
-            text_det_analyzer=text_det_analyzer,
-            layout_det_analyzer=layout_det_analyzer,
-            text_rec=text_rec,
-            processor=processor,
-            track_model_calls=track_model_calls,
-        )
-        outputs.append(output_payload)
-    return outputs
-
-
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Run dialog analysis for one image.")
-    parser.add_argument("input_path", help="Path to input image or directory")
-    parser.add_argument("--output", default="output_example.json", help="Output JSON path (single image)")
-    parser.add_argument("--output-dir", default="dialog_outputs", help="Output directory for batch JSON")
-    parser.add_argument("--draw-dir", default=None, help="Optional directory for overlay images")
-    args = parser.parse_args()
-
-    if os.path.isdir(args.input_path):
-        analyze_chat_images(
-            input_path=args.input_path,
-            output_dir=args.output_dir,
-            draw_dir=args.draw_dir,
-        )
-    else:
-        draw_output_path = None
-        if args.draw_dir:
-            os.makedirs(args.draw_dir, exist_ok=True)
-            base_name = os.path.splitext(os.path.basename(args.input_path))[0]
-            draw_output_path = os.path.join(args.draw_dir, f"{base_name}.png")
-        analyze_chat_image(
-            image_path=args.input_path,
-            output_path=args.output,
-            draw_output_path=draw_output_path,
-        )

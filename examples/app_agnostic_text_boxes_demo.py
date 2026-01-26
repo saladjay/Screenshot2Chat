@@ -31,9 +31,9 @@ from screenshotanalysis.app_agnostic_text_boxes import (
     select_layout_text_boxes,
     suppress_nested_boxes,
 )
+from screenshotanalysis.nickname_extractor import extract_nicknames_from_text_boxes
 from screenshotanalysis.processors import ChatMessageProcessor
-from screenshotanalysis.utils import ImageLoader, letterbox, DISCORD
-from screenshotanalysis.experience_formula import load_data
+from screenshotanalysis.utils import ImageLoader, letterbox
 
 
 def main():
@@ -59,12 +59,6 @@ def main():
 
     processor = ChatMessageProcessor()
 
-    try:
-        _, ratios = load_data(DISCORD)
-        ratios = ratios.tolist()
-    except Exception:
-        ratios = None
-
     def get_text_from_rec_model(text_box, image):
         x_min, y_min, x_max, y_max = text_box.box.tolist()
         text_image = image[y_min:y_max, x_min:x_max, :]
@@ -74,6 +68,21 @@ def main():
         if not text_output:
             return ""
         return text_output[0].get('rec_text', '')
+
+    def draw_badge(image_bgr, label, origin=(8, 8)):
+        x, y = origin
+        badge_width = max(140, 12 * len(label))
+        cv2.rectangle(image_bgr, (x, y), (x + badge_width, y + 28), (0, 0, 0), -1)
+        cv2.putText(
+            image_bgr,
+            label,
+            (x + 4, y + 20),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
 
     for file_name in os.listdir(input_dir):
         if not file_name.lower().endswith((".png", ".jpg", ".jpeg")):
@@ -94,104 +103,87 @@ def main():
         image_sizes = list(map(float, text_det_results.get('image_size', [image.shape[1], image.shape[0]])))
         text_det_boxes = processor._get_all_text_boxes_from_text_det(text_det_results["results"])
         sorted_text_det_boxes = processor.sort_boxes_by_y(text_det_boxes)
-        should_use_discord = (
-            'discord' in file_name.lower()
-            and ratios
-            and processor._has_dominant_xmin_bin(sorted_text_det_boxes)
+
+        ocr_cache = {}
+
+        def ocr_reader(box):
+            key = tuple(map(int, box.box.tolist()))
+            if key in ocr_cache:
+                return ocr_cache[key]
+            text_value = get_text_from_rec_model(box, image)
+            ocr_cache[key] = (text_value, 1.0 if text_value else 0.0)
+            return ocr_cache[key]
+
+        nickname_candidates = extract_nicknames_from_text_boxes(
+            text_boxes=sorted_text_det_boxes,
+            image=image,
+            processor=processor,
+            text_rec=text_rec,
+            ocr_reader=ocr_reader,
+            draw_results=False,
+            image_path=image_path,
         )
-        if should_use_discord:
-            sorted_boxes, _ = processor.format_conversation(
-                layout_det_results=layout_det_results["results"],
-                text_det_results=text_det_results["results"],
-                padding=padding,
-                image_sizes=image_sizes,
-                ratios=ratios,
-                app_type=DISCORD
-            )
-            nickname = None
-            nickname_box = processor.get_nickname_box_from_text_det_boxes(
-                text_det_results["results"],
-                padding,
-                image_sizes,
-                ratios,
-                DISCORD
-            )
-            if nickname_box:
-                nickname = get_text_from_rec_model(nickname_box, image)
-                if nickname.endswith('>'):
-                    nickname = nickname[:-1]
-            layout_text_boxes = []
-            new_speaker_group_flag = False
-            current_speaker = None
-            last_avatar_center_x = None
-            for box in sorted_boxes:
-                if box.layout_det == 'avatar':
-                    new_speaker_group_flag = True
-                    last_avatar_center_x = box.center_x
-                    if nickname is None:
-                        current_speaker = 'A' if box.center_x <= image.shape[1] / 2 else 'B'
-                    continue
-                if box.layout_det == 'nickname':
-                    if not new_speaker_group_flag:
-                        continue
-                    speaker_name = get_text_from_rec_model(box, image)
-                    if nickname and speaker_name.startswith(nickname):
-                        current_speaker = 'A'
-                    elif speaker_name:
-                        current_speaker = 'B'
-                    elif last_avatar_center_x is not None:
-                        current_speaker = 'A' if last_avatar_center_x <= image.shape[1] / 2 else 'B'
-                    continue
-                if box.layout_det == 'text':
-                    if current_speaker is None and last_avatar_center_x is not None:
-                        current_speaker = 'A' if last_avatar_center_x <= image.shape[1] / 2 else 'B'
-                    if current_speaker is None:
-                        continue
-                    box.speaker = current_speaker
-                    layout_text_boxes.append(box)
-            metadata = {
-                'layout': 'single',
-                'speaker_A_count': len([b for b in layout_text_boxes if b.speaker == 'A']),
-                'speaker_B_count': len([b for b in layout_text_boxes if b.speaker == 'B'])
-            }
-            sorted_boxes = layout_text_boxes
-        else:
-            sorted_boxes, metadata = processor.format_conversation_app_agnostic(
-                layout_det_results=layout_det_results["results"],
-                text_det_results=text_det_results["results"],
-                screen_width=screen_width,
-                coverage_threshold=0.1,
-                coverage_keep_ratio=0.25,
-                enable_height_filter=False
-            )
+        talker_nickname = nickname_candidates[0]["text"] if nickname_candidates else ""
 
-            layout_text_boxes = select_layout_text_boxes(
-                processor,
-                layout_det_results["results"]
-            )
-            layout_text_boxes = filter_small_layout_boxes(layout_text_boxes)
-            layout_text_boxes = filter_center_near_boxes(
-                layout_text_boxes,
-                image.shape[1],
-                image.shape[0]
-            )
-            layout_text_boxes = suppress_nested_boxes(layout_text_boxes)
-            layout_text_boxes = filter_by_frequent_edges(
-                layout_text_boxes,
-                image.shape[1]
-            )
-            assign_speaker_by_edges(layout_text_boxes, image.shape[1])
+        sorted_boxes, metadata = processor.format_conversation_app_agnostic(
+            layout_det_results=layout_det_results["results"],
+            text_det_results=text_det_results["results"],
+            screen_width=screen_width,
+            coverage_threshold=0.1,
+            coverage_keep_ratio=0.25,
+            enable_height_filter=False,
+            padding=padding,
+            image_sizes=image_sizes,
+            ocr_reader=ocr_reader,
+            talker_nickname=talker_nickname or None,
+        )
 
-        drawn = draw_boxes_by_speaker(image.copy(), sorted_boxes)
-        output_path = os.path.join(output_dir, file_name)
-        cv2.imwrite(output_path, cv2.cvtColor(drawn, cv2.COLOR_RGB2BGR))
+        layout_text_boxes = select_layout_text_boxes(
+            processor,
+            layout_det_results["results"]
+        )
+        layout_text_boxes = filter_small_layout_boxes(layout_text_boxes)
+        layout_text_boxes = filter_center_near_boxes(
+            layout_text_boxes,
+            image.shape[1],
+            image.shape[0]
+        )
+        layout_text_boxes = suppress_nested_boxes(layout_text_boxes)
+        layout_text_boxes = filter_by_frequent_edges(
+            layout_text_boxes,
+            image.shape[1]
+        )
+        assign_speaker_by_edges(layout_text_boxes, image.shape[1])
+
+        layout_label = f"layout: {metadata.get('layout', 'unknown')}"
+
+        final_boxes = layout_text_boxes if metadata.get('layout', '').startswith('double') else sorted_boxes
+        drawn = draw_boxes_by_speaker(image.copy(), final_boxes)
+        final_output_path = os.path.join(
+            output_dir,
+            f"{os.path.splitext(file_name)[0]}_final.png"
+        )
+        final_bgr = cv2.cvtColor(drawn, cv2.COLOR_RGB2BGR)
+        draw_badge(final_bgr, f"final | {layout_label}")
+        cv2.imwrite(final_output_path, final_bgr)
 
         layout_drawn = draw_boxes_by_speaker(image.copy(), layout_text_boxes)
         layout_output_path = os.path.join(
             output_dir,
             f"{os.path.splitext(file_name)[0]}_layout_det.png"
         )
-        cv2.imwrite(layout_output_path, cv2.cvtColor(layout_drawn, cv2.COLOR_RGB2BGR))
+        layout_bgr = cv2.cvtColor(layout_drawn, cv2.COLOR_RGB2BGR)
+        draw_badge(layout_bgr, f"layout_det | {layout_label}")
+        cv2.imwrite(layout_output_path, layout_bgr)
+
+        text_det_drawn = draw_boxes_by_speaker(image.copy(), sorted_boxes)
+        text_det_output_path = os.path.join(
+            output_dir,
+            f"{os.path.splitext(file_name)[0]}_text_det.png"
+        )
+        text_det_bgr = cv2.cvtColor(text_det_drawn, cv2.COLOR_RGB2BGR)
+        draw_badge(text_det_bgr, f"text_det | {layout_label}")
+        cv2.imwrite(text_det_output_path, text_det_bgr)
         coords_path = save_detection_coords(coords_dir, image_path, sorted_boxes, metadata)
         metrics = evaluate_against_gt(image_path, sorted_boxes)
 
