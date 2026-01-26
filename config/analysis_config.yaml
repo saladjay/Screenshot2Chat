@@ -1,0 +1,6 @@
+nickname:
+  min_score: 40.0
+  min_top_margin_ratio: 0.05
+  top_region_ratio: 0.2
+dialog:
+  min_bubble_count: 5
