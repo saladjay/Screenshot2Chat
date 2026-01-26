@@ -13,7 +13,17 @@
 
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+
+# 确保使用当前项目的代码，而不是其他目录
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(current_dir, '..', '..'))
+src_path = os.path.join(project_root, 'src')
+
+# 移除可能冲突的路径
+sys.path = [p for p in sys.path if 'chatlayoutdet_ws' not in p]
+
+# 将当前项目的src路径插入到最前面
+sys.path.insert(0, src_path)
 
 import numpy as np
 import re

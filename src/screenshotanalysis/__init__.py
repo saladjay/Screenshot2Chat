@@ -1,10 +1,18 @@
-
 """聊天内容定位分析工具包"""
 __version__ = "0.1.0"
 
 from .core import ChatLayoutAnalyzer, ChatTextRecognition
 from .processors import ChatMessageProcessor, LayoutVisualizer
 from .nickname_extractor import extract_nicknames_smart, draw_top3_results
+from .exceptions import (
+    AnalysisError,
+    ConfigError,
+    NicknameAnalysisError,
+    NicknameNotFoundError,
+    NicknameScoreTooLowError,
+    DialogAnalysisError,
+    DialogCountTooLowError,
+)
 from .app_agnostic_text_boxes import (
     assign_speaker_by_avatar_order,
     assign_speaker_by_center_x,
@@ -30,6 +38,13 @@ __all__ = [
     "ChatTextRecognition",
     "extract_nicknames_smart",
     "draw_top3_results",
+    "AnalysisError",
+    "ConfigError",
+    "NicknameAnalysisError",
+    "NicknameNotFoundError",
+    "NicknameScoreTooLowError",
+    "DialogAnalysisError",
+    "DialogCountTooLowError",
     "assign_speaker_by_avatar_order",
     "assign_speaker_by_center_x",
     "assign_speaker_by_edges",
@@ -45,6 +60,7 @@ __all__ = [
     "save_detection_coords",
     "select_layout_text_boxes",
     "suppress_nested_boxes",
+    "get_models",
     "layout_det",
     "text_det",
     "en_rec"
@@ -54,3 +70,14 @@ __all__ = [
 layout_det = ChatLayoutAnalyzer("PP-DocLayoutV2")
 text_det = ChatLayoutAnalyzer("PP-OCRv5_server_det")
 en_rec = ChatTextRecognition("PP-OCRv5_server_rec")
+
+
+def get_models():
+    global layout_det, text_det, en_rec
+    try:
+        layout_det.load_model()
+        text_det.load_model()
+        en_rec.load_model()
+    except Exception as e:
+        print(f"Error loading models: {e}")
+    return {"layout_det": layout_det, "text_det": text_det, "en_rec": en_rec}
