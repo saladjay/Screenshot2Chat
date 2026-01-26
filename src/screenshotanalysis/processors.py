@@ -1798,8 +1798,10 @@ class ChatMessageProcessor:
         1. Position score (0-15): Closer to screen center = higher score
         2. Text score (0-30): Not system text
         3. Y position score (0-15): In top region but not extreme top
-        4. Height score (0-20): Larger font height = higher score (nicknames use larger fonts)
-        5. Y rank score (0-20): Ranking based on Y position (1st=20, 2nd=15, 3rd=10)
+        4. Height score (0-30): Larger font height = higher score (nicknames use larger fonts) ⬆️ 增加权重
+        5. Y rank score (0-10): Ranking based on Y position (1st=10, 2nd=7, 3rd=5) ⬇️ 降低权重
+        
+        总分：100分
         
         Args:
             box: TextBox candidate
@@ -1833,7 +1835,7 @@ class ChatMessageProcessor:
         else:
             y_score = 0
         
-        # 4. Height score (0-20): larger font height = higher score
+        # 4. Height score (0-30): larger font height = higher score ⬆️ 从20提高到30
         # Nicknames typically use larger fonts than other text
         # Normalize height relative to screen height
         # Typical nickname height: 2-5% of screen height
@@ -1847,22 +1849,22 @@ class ChatMessageProcessor:
             # Within ideal range, score based on how large it is
             # Larger within range = higher score
             normalized_height = (height_ratio - ideal_height_min) / (ideal_height_max - ideal_height_min)
-            height_score = normalized_height * 20
+            height_score = normalized_height * 30  # ⬆️ 从20改为30
         elif height_ratio < ideal_height_min:
-            # Too small, penalize
-            height_score = (height_ratio / ideal_height_min) * 10
+            # Too small, penalize more
+            height_score = (height_ratio / ideal_height_min) * 15  # ⬆️ 从10改为15
         else:
             # Too large, penalize
-            height_score = (ideal_height_max / height_ratio) * 10
+            height_score = (ideal_height_max / height_ratio) * 15  # ⬆️ 从10改为15
         
-        # 5. Y rank score (0-20): ranking based on Y position
+        # 5. Y rank score (0-10): ranking based on Y position ⬇️ 从20降低到10
         if y_rank is not None:
             if y_rank == 1:
-                y_rank_score = 20
+                y_rank_score = 10  # ⬇️ 从20改为10
             elif y_rank == 2:
-                y_rank_score = 15
+                y_rank_score = 7   # ⬇️ 从15改为7
             elif y_rank == 3:
-                y_rank_score = 10
+                y_rank_score = 5   # ⬇️ 从10改为5
             else:
                 y_rank_score = 0
         else:

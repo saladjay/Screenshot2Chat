@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 import os
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import cv2
@@ -27,6 +27,21 @@ from screenshotanalysis.app_agnostic_text_boxes import (
 from screenshotanalysis.nickname_extractor import extract_nicknames_from_text_boxes
 from screenshotanalysis.processors import ChatMessageProcessor, TextBox, LAYOUT_DET, TEXT_DET
 from screenshotanalysis.utils import ImageLoader, letterbox
+from screenshotanalysis.config_manager import load_config, update_config
+
+
+def _load_analysis_config(
+    config_path: Optional[str],
+    runtime_config: Optional[Dict[str, Any]],
+    persist_runtime_config: bool,
+) -> Dict[str, Any]:
+    if runtime_config:
+        return update_config(
+            runtime_config,
+            config_path=config_path,
+            keep_history=persist_runtime_config,
+        )
+    return load_config(config_path)
 
 
 def analyze_chat_image(
@@ -41,6 +56,9 @@ def analyze_chat_image(
     track_model_calls: bool = True,
     split_layout_lines: bool = True,
     multiline_height_ratio: float = 1.8,
+    config_path: Optional[str] = None,
+    runtime_config: Optional[Dict[str, Any]] = None,
+    persist_runtime_config: bool = True,
 ) -> Tuple[Dict, Dict[int, Dict[str, int]]]:
     """
     Analyze a single chat image and return dialog JSON + model usage stats.
@@ -62,6 +80,14 @@ def analyze_chat_image(
         text_rec.load_model()
 
     speaker_map = speaker_map or {"A": "talker", "B": "user", None: "user"}
+
+    config = _load_analysis_config(config_path, runtime_config, persist_runtime_config)
+    nickname_min_score = float(config["nickname"]["min_score"])
+    nickname_min_top_margin_ratio = float(config["nickname"].get("min_top_margin_ratio", 0.05))
+    nickname_top_region_ratio = float(config["nickname"].get("top_region_ratio", 0.2))
+    min_bubble_count = int(config["dialog"]["min_bubble_count"])
+    analysis_failures: List[str] = []
+    analysis_failure_details: List[Dict[str, Any]] = []
 
     image = ImageLoader.load_image(image_path)
     if image.mode == "RGBA":
@@ -199,8 +225,34 @@ def analyze_chat_image(
         ocr_reader=ocr_reader,
         draw_results=False,
         image_path=image_path,
+        min_top_margin_ratio=nickname_min_top_margin_ratio,
+        top_region_ratio=nickname_top_region_ratio,
     )
-    talker_nickname = nickname_candidates[0]["text"] if nickname_candidates else ""
+    top_candidate = nickname_candidates[0] if nickname_candidates else None
+    if not top_candidate:
+        talker_nickname = ""
+        analysis_failures.append("nickname_not_found")
+        analysis_failure_details.append(
+            {
+                "code": "nickname_not_found",
+                "actual": None,
+                "threshold": nickname_min_score,
+            }
+        )
+    else:
+        top_score = float(top_candidate.get("nickname_score", 0.0))
+        if top_score < nickname_min_score:
+            talker_nickname = ""
+            analysis_failures.append("nickname_score_below_threshold")
+            analysis_failure_details.append(
+                {
+                    "code": "nickname_score_below_threshold",
+                    "actual": top_score,
+                    "threshold": nickname_min_score,
+                }
+            )
+        else:
+            talker_nickname = top_candidate.get("text", "")
 
     dialogs: List[Dict] = []
     model_calls_by_dialog: Dict[int, Dict[str, int]] = {}
@@ -220,9 +272,27 @@ def analyze_chat_image(
             model_calls_by_dialog[idx] = dialog["model_calls"]
         dialogs.append(dialog)
 
+    if len(dialogs) < min_bubble_count:
+        analysis_failures.append("dialog_count_below_threshold")
+        analysis_failure_details.append(
+            {
+                "code": "dialog_count_below_threshold",
+                "actual": len(dialogs),
+                "threshold": min_bubble_count,
+            }
+        )
+
     output_payload = {
         "talker_nickname": talker_nickname,
         "dialogs": dialogs,
+        "analysis_failures": analysis_failures,
+        "analysis_failure_details": analysis_failure_details,
+        "config": {
+            "nickname_min_score": nickname_min_score,
+            "nickname_min_top_margin_ratio": nickname_min_top_margin_ratio,
+            "nickname_top_region_ratio": nickname_top_region_ratio,
+            "min_bubble_count": min_bubble_count,
+        },
     }
 
     if output_path:
@@ -323,6 +393,9 @@ def analyze_chat_images(
     track_model_calls: bool = True,
     split_layout_lines: bool = True,
     multiline_height_ratio: float = 1.8,
+    config_path: Optional[str] = None,
+    runtime_config: Optional[Dict[str, Any]] = None,
+    persist_runtime_config: bool = True,
 ) -> List[Dict]:
     os.makedirs(output_dir, exist_ok=True)
     if draw_dir:
@@ -354,6 +427,9 @@ def analyze_chat_images(
             track_model_calls=track_model_calls,
             split_layout_lines=split_layout_lines,
             multiline_height_ratio=multiline_height_ratio,
+            config_path=config_path,
+            runtime_config=runtime_config,
+            persist_runtime_config=persist_runtime_config,
         )
         outputs.append(output_payload)
     return outputs
@@ -378,7 +454,17 @@ if __name__ == "__main__":
         default=1.8,
         help="Height ratio threshold to split layout_det text boxes into multiple lines",
     )
+    parser.add_argument("--config", default=None, help="Path to YAML config file")
+    parser.add_argument("--nickname-min-score", type=float, default=None, help="Runtime nickname score threshold")
+    parser.add_argument("--min-bubble-count", type=int, default=None, help="Minimum dialog bubble count threshold")
     args = parser.parse_args()
+
+    runtime_config = {}
+    if args.nickname_min_score is not None:
+        runtime_config.setdefault("nickname", {})["min_score"] = args.nickname_min_score
+    if args.min_bubble_count is not None:
+        runtime_config.setdefault("dialog", {})["min_bubble_count"] = args.min_bubble_count
+    runtime_config = runtime_config or None
 
     if os.path.isdir(args.input_path):
         analyze_chat_images(
@@ -387,6 +473,9 @@ if __name__ == "__main__":
             draw_dir=args.draw_dir,
             split_layout_lines=not args.no_split_layout_lines,
             multiline_height_ratio=args.multiline_height_ratio,
+            config_path=args.config,
+            runtime_config=runtime_config,
+            persist_runtime_config=True,
         )
     else:
         draw_output_path = None
@@ -400,4 +489,7 @@ if __name__ == "__main__":
             draw_output_path=draw_output_path,
             split_layout_lines=not args.no_split_layout_lines,
             multiline_height_ratio=args.multiline_height_ratio,
+            config_path=args.config,
+            runtime_config=runtime_config,
+            persist_runtime_config=True,
         )
