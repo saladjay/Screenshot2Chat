@@ -55,7 +55,7 @@ from typing import Dict, List, Optional, Tuple, Any
 
 import numpy as np
 from sklearn.cluster import KMeans
-
+from screenshotanalysis.basemodel import TextBox
 
 class ChatLayoutDetector:
     """
@@ -134,7 +134,7 @@ class ChatLayoutDetector:
             # If warmup fails, it's not critical
             pass
     
-    def process_frame(self, boxes: List[Any]) -> Dict[str, Any]:
+    def process_frame(self, boxes: List[Any], layout_det_boxes:List[Any]=None, text_det_boxes:List[Any]=None) -> Dict[str, Any]:
         """
         统一接口：处理单帧截图
         
@@ -160,11 +160,12 @@ class ChatLayoutDetector:
             # 单列布局：所有文本框分配给Speaker A
             assigned = {"A": left_boxes, "B": []}
         
-        # 3. 调用update_memory更新记忆
-        self.update_memory(assigned)
+        if layout_type.startswith("double"):
+            # 3. 调用update_memory更新记忆
+            self.update_memory(assigned)
         
-        # 4. 更新frame_count
-        self.frame_count += 1
+            # 4. 更新frame_count
+            self.frame_count += 1
         
         # 5. 构建并返回结果字典
         # 计算metadata
@@ -203,6 +204,26 @@ class ChatLayoutDetector:
         }
         
         return result
+
+    def _has_dominant_xmin_bin(self, boxes: list[TextBox], bin_size: int = 4, min_ratio: float = 0.35) -> bool:
+        if not boxes:
+            return False, -1
+        xmins = np.array([box.x_min for box in boxes])
+        bins = (xmins // bin_size) * bin_size
+        _, counts = np.unique(bins, return_counts=True)
+        if counts.size == 0:
+            return False, -1
+        return counts.max() / len(boxes) >= min_ratio, bins[np.argmax(counts)]
+
+    def _has_dominant_xmax_bin(self, boxes: list[TextBox], bin_size: int = 4, min_ratio: float = 0.35) -> bool:
+        if not boxes:
+            return False, -1
+        xmins = np.array([box.x_min for box in boxes])
+        bins = (xmins // bin_size) * bin_size
+        _, counts = np.unique(bins, return_counts=True)
+        if counts.size == 0:
+            return False, -1
+        return counts.max() / len(boxes) >= min_ratio, bins[np.argmax(counts)]
     
     def split_columns(
         self, 
@@ -233,6 +254,19 @@ class ChatLayoutDetector:
         if not boxes:
             return "single", [], [], None
         
+        # 如果x_min高度集中但x_max不集中，通常表示单列文本（右边界不统一）
+        # 直接判定为单列，避免KMeans把单列误分成双列
+        main_x_min, main_x_min_bin = self._has_dominant_xmin_bin(boxes, min_ratio=0.7)
+        main_x_max, main_x_max_bin = self._has_dominant_xmax_bin(boxes)
+        if not main_x_max and main_x_min:
+            return "single", list(boxes), [], None
+
+        main_x_min, main_x_min_bin = self._has_dominant_xmin_bin(boxes)
+        main_x_max, main_x_max_bin = self._has_dominant_xmax_bin(boxes, min_ratio=0.7)
+        if main_x_max and not main_x_min:
+            return "single", list(boxes), [], None
+
+
         # 1. 提取并归一化center_x
         center_x_values = np.array([box.center_x for box in boxes])
         normalized_centers = center_x_values / self.screen_width

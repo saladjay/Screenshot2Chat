@@ -106,7 +106,7 @@ class ChatLayoutAnalyzer:
             raise
         return self.model
     
-    def analyze_chat_screenshot(self, image) -> Dict[str, Any]:
+    def analyze_chat_screenshot(self, image, **kwargs) -> Dict[str, Any]:
         """
         分析聊天截图的内容布局
         
@@ -133,9 +133,15 @@ class ChatLayoutAnalyzer:
                     image = image.convert("RGB")
 
                 image = np.array(image)
+
             self.logger.info(f"image type:{type(image)}, shape:{image.shape}")
-            self.logger.info("开始 letterbox 处理...")
-            image, padding = letterbox(image)
+            
+            if kwargs.get("letterbox", None) is None:
+                self.logger.info("开始 letterbox 处理...")
+                image, padding = letterbox(image)
+            else:
+                padding = kwargs.get("padding")
+                self.logger.info(f"使用自定义 padding: {padding}")
             self.logger.info(f"letterbox 完成, padding={padding}")
 
             # 执行版面分析

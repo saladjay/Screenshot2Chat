@@ -1,15 +1,15 @@
 """
-Single-image chat dialog pipeline.
+Single-image chat dialog pipeline (pipeline2).
 
-Runs app-agnostic dialog assignment and nickname extraction with minimal
-model inference, returning output in output_example.json format and
-tracking per-textbox model usage.
+Mirrors dialog_pipeline.analyze_chat_image but uses the demo "final" output
+selection: double layouts use layout_det boxes, single layouts use the
+app-agnostic final boxes.
 """
 
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import cv2
@@ -26,21 +26,6 @@ from screenshotanalysis.app_agnostic_text_boxes import (
 from screenshotanalysis.nickname_extractor import extract_nicknames_from_text_boxes
 from screenshotanalysis.processors import ChatMessageProcessor, TextBox
 from screenshotanalysis.utils import ImageLoader, letterbox
-from screenshotanalysis.config_manager import load_config, update_config
-
-
-def _load_analysis_config(
-    config_path: Optional[str],
-    runtime_config: Optional[Dict[str, Any]],
-    persist_runtime_config: bool,
-) -> Dict[str, Any]:
-    if runtime_config:
-        return update_config(
-            runtime_config,
-            config_path=config_path,
-            keep_history=persist_runtime_config,
-        )
-    return load_config(config_path)
 
 
 def analyze_chat_image(
@@ -53,11 +38,6 @@ def analyze_chat_image(
     processor: Optional[ChatMessageProcessor] = None,
     speaker_map: Optional[Dict[str, str]] = None,
     track_model_calls: bool = True,
-    split_layout_lines: bool = True,
-    multiline_height_ratio: float = 1.8,
-    config_path: Optional[str] = None,
-    runtime_config: Optional[Dict[str, Any]] = None,
-    persist_runtime_config: bool = True,
 ) -> Tuple[Dict, Dict[int, Dict[str, int]]]:
     """
     Analyze a single chat image and return dialog JSON + model usage stats.
@@ -80,21 +60,13 @@ def analyze_chat_image(
 
     speaker_map = speaker_map or {"A": "talker", "B": "user", None: "user"}
 
-    config = _load_analysis_config(config_path, runtime_config, persist_runtime_config)
-    nickname_min_score = float(config["nickname"]["min_score"])
-    nickname_min_top_margin_ratio = float(config["nickname"].get("min_top_margin_ratio", 0.05))
-    nickname_top_region_ratio = float(config["nickname"].get("top_region_ratio", 0.2))
-    min_bubble_count = int(config["dialog"]["min_bubble_count"])
-    analysis_failures: List[str] = []
-    analysis_failure_details: List[Dict[str, Any]] = []
-
     image = ImageLoader.load_image(image_path)
     if image.mode == "RGBA":
         image = image.convert("RGB")
     image = np.array(image)
     image, padding = letterbox(image)
 
-    preprocess_dict = {"letterbox":True, "padding":padding}
+    preprocess_dict = {"letterbox": True, "padding": padding}
     text_det_results = text_det_analyzer.analyze_chat_screenshot(image, **preprocess_dict)
     layout_det_results = layout_det_analyzer.analyze_chat_screenshot(image, **preprocess_dict)
 
@@ -147,34 +119,8 @@ def analyze_chat_image(
         ocr_reader=ocr_reader,
         draw_results=False,
         image_path=image_path,
-        min_top_margin_ratio=nickname_min_top_margin_ratio,
-        top_region_ratio=nickname_top_region_ratio,
     )
-    top_candidate = nickname_candidates[0] if nickname_candidates else None
-    if not top_candidate:
-        talker_nickname = ""
-        analysis_failures.append("nickname_not_found")
-        analysis_failure_details.append(
-            {
-                "code": "nickname_not_found",
-                "actual": None,
-                "threshold": nickname_min_score,
-            }
-        )
-    else:
-        top_score = float(top_candidate.get("nickname_score", 0.0))
-        if top_score < nickname_min_score:
-            talker_nickname = ""
-            analysis_failures.append("nickname_score_below_threshold")
-            analysis_failure_details.append(
-                {
-                    "code": "nickname_score_below_threshold",
-                    "actual": top_score,
-                    "threshold": nickname_min_score,
-                }
-            )
-        else:
-            talker_nickname = top_candidate.get("text", "")
+    talker_nickname = nickname_candidates[0]["text"] if nickname_candidates else ""
 
     sorted_boxes, metadata = processor.format_conversation_app_agnostic(
         layout_det_results=layout_det_results["results"],
@@ -206,10 +152,13 @@ def analyze_chat_image(
     )
     assign_speaker_by_edges(layout_text_boxes, image.shape[1])
 
+    layout_name = metadata.get("layout", "")
+    final_boxes = layout_text_boxes if layout_name.startswith("double") else sorted_boxes
+
     dialogs: List[Dict] = []
     model_calls_by_dialog: Dict[int, Dict[str, int]] = {}
 
-    for idx, box in enumerate(sorted_boxes):
+    for idx, box in enumerate(final_boxes):
         text_value, _ = ocr_reader(box)
         speaker = speaker_map.get(box.speaker, speaker_map.get(None, "user"))
         dialog = {
@@ -224,27 +173,9 @@ def analyze_chat_image(
             model_calls_by_dialog[idx] = dialog["model_calls"]
         dialogs.append(dialog)
 
-    if len(dialogs) < min_bubble_count:
-        analysis_failures.append("dialog_count_below_threshold")
-        analysis_failure_details.append(
-            {
-                "code": "dialog_count_below_threshold",
-                "actual": len(dialogs),
-                "threshold": min_bubble_count,
-            }
-        )
-
     output_payload = {
         "talker_nickname": talker_nickname,
         "dialogs": dialogs,
-        "analysis_failures": analysis_failures,
-        "analysis_failure_details": analysis_failure_details,
-        "config": {
-            "nickname_min_score": nickname_min_score,
-            "nickname_min_top_margin_ratio": nickname_min_top_margin_ratio,
-            "nickname_top_region_ratio": nickname_top_region_ratio,
-            "min_bubble_count": min_bubble_count,
-        },
     }
 
     if output_path:
@@ -256,7 +187,7 @@ def analyze_chat_image(
     if draw_output_path:
         draw_dialog_overlays(
             image=image,
-            boxes=layout_text_boxes,
+            boxes=final_boxes,
             nickname_candidate=nickname_candidates[0] if nickname_candidates else None,
             output_path=draw_output_path,
             speaker_map=speaker_map,
@@ -330,118 +261,9 @@ def draw_dialog_overlays(
 
 def iter_image_paths(input_path: str) -> Iterable[str]:
     if os.path.isdir(input_path):
-        for name in sorted(os.listdir(input_path)):
-            if not name.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tif", ".tiff")):
-                continue
-            yield os.path.join(input_path, name)
-    else:
+        for fname in os.listdir(input_path):
+            if fname.lower().endswith((".png", ".jpg", ".jpeg")):
+                yield os.path.join(input_path, fname)
+        return
+    if os.path.isfile(input_path):
         yield input_path
-
-
-def analyze_chat_images(
-    input_path: str,
-    output_dir: str,
-    draw_dir: Optional[str] = None,
-    track_model_calls: bool = True,
-    split_layout_lines: bool = True,
-    multiline_height_ratio: float = 1.8,
-    config_path: Optional[str] = None,
-    runtime_config: Optional[Dict[str, Any]] = None,
-    persist_runtime_config: bool = True,
-) -> List[Dict]:
-    os.makedirs(output_dir, exist_ok=True)
-    if draw_dir:
-        os.makedirs(draw_dir, exist_ok=True)
-
-    processor = ChatMessageProcessor()
-    text_det_analyzer = ChatLayoutAnalyzer(model_name="PP-OCRv5_server_det")
-    text_det_analyzer.load_model()
-    layout_det_analyzer = ChatLayoutAnalyzer(model_name="PP-DocLayoutV2")
-    layout_det_analyzer.load_model()
-    text_rec = ChatTextRecognition(model_name="PP-OCRv5_server_rec", lang="en")
-    text_rec.load_model()
-
-    outputs = []
-    for image_path in iter_image_paths(input_path):
-        base_name = os.path.splitext(os.path.basename(image_path))[0]
-        output_path = os.path.join(output_dir, f"{base_name}.json")
-        draw_output_path = None
-        if draw_dir:
-            draw_output_path = os.path.join(draw_dir, f"{base_name}.png")
-        output_payload, _ = analyze_chat_image(
-            image_path=image_path,
-            output_path=output_path,
-            draw_output_path=draw_output_path,
-            text_det_analyzer=text_det_analyzer,
-            layout_det_analyzer=layout_det_analyzer,
-            text_rec=text_rec,
-            processor=processor,
-            track_model_calls=track_model_calls,
-            split_layout_lines=split_layout_lines,
-            multiline_height_ratio=multiline_height_ratio,
-            config_path=config_path,
-            runtime_config=runtime_config,
-            persist_runtime_config=persist_runtime_config,
-        )
-        outputs.append(output_payload)
-    return outputs
-
-
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Run dialog analysis for one image.")
-    parser.add_argument("input_path", help="Path to input image or directory")
-    parser.add_argument("--output", default="output_example.json", help="Output JSON path (single image)")
-    parser.add_argument("--output-dir", default="dialog_outputs", help="Output directory for batch JSON")
-    parser.add_argument("--draw-dir", default=None, help="Optional directory for overlay images")
-    parser.add_argument(
-        "--no-split-layout-lines",
-        action="store_true",
-        help="Disable splitting tall layout_det text boxes into multiple lines",
-    )
-    parser.add_argument(
-        "--multiline-height-ratio",
-        type=float,
-        default=1.8,
-        help="Height ratio threshold to split layout_det text boxes into multiple lines",
-    )
-    parser.add_argument("--config", default=None, help="Path to YAML config file")
-    parser.add_argument("--nickname-min-score", type=float, default=None, help="Runtime nickname score threshold")
-    parser.add_argument("--min-bubble-count", type=int, default=None, help="Minimum dialog bubble count threshold")
-    args = parser.parse_args()
-
-    runtime_config = {}
-    if args.nickname_min_score is not None:
-        runtime_config.setdefault("nickname", {})["min_score"] = args.nickname_min_score
-    if args.min_bubble_count is not None:
-        runtime_config.setdefault("dialog", {})["min_bubble_count"] = args.min_bubble_count
-    runtime_config = runtime_config or None
-
-    if os.path.isdir(args.input_path):
-        analyze_chat_images(
-            input_path=args.input_path,
-            output_dir=args.output_dir,
-            draw_dir=args.draw_dir,
-            split_layout_lines=not args.no_split_layout_lines,
-            multiline_height_ratio=args.multiline_height_ratio,
-            config_path=args.config,
-            runtime_config=runtime_config,
-            persist_runtime_config=True,
-        )
-    else:
-        draw_output_path = None
-        if args.draw_dir:
-            os.makedirs(args.draw_dir, exist_ok=True)
-            base_name = os.path.splitext(os.path.basename(args.input_path))[0]
-            draw_output_path = os.path.join(args.draw_dir, f"{base_name}.png")
-        analyze_chat_image(
-            image_path=args.input_path,
-            output_path=args.output,
-            draw_output_path=draw_output_path,
-            split_layout_lines=not args.no_split_layout_lines,
-            multiline_height_ratio=args.multiline_height_ratio,
-            config_path=args.config,
-            runtime_config=runtime_config,
-            persist_runtime_config=True,
-        )

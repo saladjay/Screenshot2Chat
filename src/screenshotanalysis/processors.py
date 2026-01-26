@@ -1,4 +1,6 @@
 import json
+import re
+from difflib import SequenceMatcher
 from typing import Dict, Any, List
 import cv2
 import numpy as np
@@ -9,6 +11,7 @@ from copy import deepcopy
 from screenshotanalysis.experience_formula import *
 from screenshotanalysis.utils import DISCORD, WHATSAPP, INSTAGRAM, TELEGRAM
 from screenshotanalysis.chat_layout_detector import ChatLayoutDetector
+from screenshotanalysis.basemodel import TextBox
 NAME_LINE = 'name_line' # 用户名字
 MULTI_LINE = 'multi_line' # 多行聊天框
 SINGLE_LINE = 'single_line' # 单行聊天框
@@ -20,53 +23,7 @@ MAGIC_MARGIN_PERCENTAGE = 0.01
 
 MAIN_HEIGHT_TOLERANCE = 0.25
 MAIN_AREA_TOLERANCE = 0.2
-class TextBox:
-    def __init__(self, box, score, **kwargs):
-        self.box = box
-        self.score = score
-        if isinstance(self.box, list):
-            self.box = np.array(self.box)
-        self.text_type = None
-        self.source = None
-        self.layout_det = None
-        self.speaker = None  # Add speaker attribute for nickname extraction
 
-        for k, v in kwargs.items():
-            if hasattr(self, k):
-                setattr(self, k, v)
-        self.x_min, self.y_min, self.x_max, self.y_max = self.box.tolist()
-
-    @property
-    def min_x(self): 
-        return self.x_min 
-
-    @property
-    def min_y(self): 
-        return self.y_min
-
-    @property
-    def max_x(self): 
-        return self.x_max
-
-    @property
-    def max_y(self): 
-        return self.y_max
-
-    @property
-    def center_x(self):
-        return (self.x_min + self.x_max) / 2
-
-    @property
-    def center_y(self):
-        return (self.y_min + self.y_max) / 2
-
-    @property
-    def height(self):
-        return self.y_max - self.y_min
-
-    @property
-    def width(self):
-        return self.x_max - self.x_min
 
 class ChatMessageProcessor:
     """聊天消息后处理器"""
@@ -309,7 +266,7 @@ class ChatMessageProcessor:
         sorted_text_det_text_boxes = self.sort_boxes_by_y(text_det_text_boxes)
         filtered_text_boxes = self.filter_by_rules_to_find_nickname(sorted_text_det_text_boxes, padding, image_sizes, ratios, app_type, log_file)
 
-        main_height = self.estimate_main_value(text_det_text_boxes, 'height', bin_size=2, log_file=log_file)
+        main_height = self.estimate_main_text_height(text_det_text_boxes, bin_size=2, log_file=log_file)
         height_lower = main_height * (1 - MAIN_HEIGHT_TOLERANCE)
         height_upper = main_height * (1 + MAIN_HEIGHT_TOLERANCE)
         if log_file:
@@ -587,6 +544,10 @@ class ChatMessageProcessor:
         height_bin_size: int = 3,
         height_tolerance_px: int = 4,
         min_height_keep_ratio: float = 0.4,
+        padding: list[float] | None = None,
+        image_sizes: list[float] | None = None,
+        ocr_reader=None,
+        talker_nickname: str | None = None,
         log_file=None
     ) -> tuple:
         """
@@ -603,6 +564,10 @@ class ChatMessageProcessor:
             height_bin_size: 文本高度量化的bin大小
             height_tolerance_px: 文本高度容忍度（像素）
             min_height_keep_ratio: 最小高度保持比率
+            padding: 图片padding信息
+            image_sizes: 图片尺寸
+            ocr_reader: 可选OCR读取函数，返回(text, score)
+            talker_nickname: 可选的对方昵称，用于单列时区分说话者
             log_file: 可选日志文件
 
         Returns:
@@ -625,6 +590,12 @@ class ChatMessageProcessor:
                 text_boxes=text_det_text_boxes,
                 screen_width=screen_width,
                 memory_path=memory_path,
+                layout_det_results=layout_det_results,
+                text_det_results=text_det_results,
+                padding=padding,
+                image_sizes=image_sizes,
+                ocr_reader=ocr_reader,
+                talker_nickname=talker_nickname,
                 log_file=log_file
             )
 
@@ -636,9 +607,9 @@ class ChatMessageProcessor:
             ]
             if height_filtered:
                 text_det_text_boxes = height_filtered
-                # keep_ratio = len(height_filtered) / max(len(text_det_text_boxes), 1)
-                # if keep_ratio >= min_height_keep_ratio:
-                #     text_det_text_boxes = height_filtered
+                keep_ratio = len(height_filtered) / max(len(text_det_text_boxes), 1)
+                if keep_ratio >= min_height_keep_ratio:
+                    text_det_text_boxes = height_filtered
 
         layout_det_text_boxes_np = np.array([text_box.box for text_box in layout_det_text_boxes])
         text_det_text_boxes_np = np.array([text_box.box for text_box in text_det_text_boxes])
@@ -656,6 +627,9 @@ class ChatMessageProcessor:
         filtered_text_det_boxes = []
         for i in range(coverage_matrix.shape[0]):
             if np.any(mask[i]):
+                for j in range(coverage_matrix.shape[1]):
+                    if mask[i, j]:
+                        text_det_text_boxes[i].related_layout_boxes.append(layout_det_text_boxes[j])
                 filtered_text_det_boxes.append(text_det_text_boxes[i])
 
         if not filtered_text_det_boxes:
@@ -669,6 +643,12 @@ class ChatMessageProcessor:
             text_boxes=filtered_text_det_boxes,
             screen_width=screen_width,
             memory_path=memory_path,
+            layout_det_results=layout_det_results,
+            text_det_results=text_det_results,
+            padding=padding,
+            image_sizes=image_sizes,
+            ocr_reader=ocr_reader,
+            talker_nickname=talker_nickname,
             log_file=log_file
         )
 
@@ -837,6 +817,16 @@ class ChatMessageProcessor:
             return False
         return counts.max() / len(boxes) >= min_ratio
 
+    def _has_dominant_xmax_bin(self, boxes: list[TextBox], bin_size: int = 4, min_ratio: float = 0.35) -> bool:
+        if not boxes:
+            return False
+        xmaxs = np.array([box.x_max for box in boxes])
+        bins = (xmaxs // bin_size) * bin_size
+        _, counts = np.unique(bins, return_counts=True)
+        if counts.size == 0:
+            return False
+        return counts.max() / len(boxes) >= min_ratio
+
     def filter_by_rules_to_find_nickname(self, boxes_from_text_det:list[TextBox], padding, image_sizes, ratios, app_type, log_file=None):
         unfiltered_text_boxes = boxes_from_text_det
         filtered_text_boxes = []
@@ -960,7 +950,7 @@ class ChatMessageProcessor:
         else:
             return 'user'
 
-    def detect_chat_layout_adaptive(self, text_boxes: List[TextBox], screen_width: int, 
+    def detect_chat_layout_adaptive(self, text_boxes: List[TextBox], layout_det_text_boxes: List[TextBox], text_det_text_boxes: List[TextBox], screen_width: int, 
                                     memory_path: str = None, log_file=None) -> Dict:
         """
         使用新的自适应ChatLayoutDetector进行聊天布局检测
@@ -995,7 +985,7 @@ class ChatMessageProcessor:
         )
         
         # 处理当前帧
-        result = detector.process_frame(text_boxes)
+        result = detector.process_frame(text_boxes, layout_det_text_boxes, text_det_text_boxes)
         
         # 可选：记录日志
         if log_file:
@@ -1007,7 +997,14 @@ class ChatMessageProcessor:
         return result
     
     def format_conversation_adaptive(self, text_boxes: List[TextBox], screen_width: int,
-                                    memory_path: str = None, log_file=None) -> tuple:
+                                    memory_path: str = None,
+                                    layout_det_results=None,
+                                    text_det_results=None,
+                                    padding: list[float] | None = None,
+                                    image_sizes: list[float] | None = None,
+                                    ocr_reader=None,
+                                    talker_nickname: str | None = None,
+                                    log_file=None) -> tuple:
         """
         使用自适应检测器格式化对话
         
@@ -1018,6 +1015,12 @@ class ChatMessageProcessor:
             text_boxes: TextBox对象列表
             screen_width: 屏幕宽度（像素）
             memory_path: 可选的记忆持久化路径
+            layout_det_results: layout_det模型输出
+            text_det_results: text_det模型输出
+            padding: 图片padding信息
+            image_sizes: 图片尺寸
+            ocr_reader: 可选OCR读取函数，返回(text, score)
+            talker_nickname: 可选的对方昵称，用于单列时区分说话者
             log_file: 可选的日志文件对象
             
         Returns:
@@ -1026,8 +1029,63 @@ class ChatMessageProcessor:
             - metadata: 包含布局信息和说话者分配的字典
         """
         # 使用新检测器
-        result = self.detect_chat_layout_adaptive(text_boxes, screen_width, memory_path, log_file)
-        
+        result = self.detect_chat_layout_adaptive(text_boxes, layout_det_results, text_det_results, screen_width, memory_path, log_file)
+
+        # 单列布局时，如果提供了Discord上下文信息，复用Discord分组逻辑
+        if (
+            result.get('layout') == 'single'
+            and layout_det_results is not None
+            and text_det_results is not None
+            and padding is not None
+            and image_sizes is not None
+        ):
+            avatar_boxes = self._get_all_avatar_boxes_from_layout_det(layout_det_results)
+            sorted_avatar_boxes = self.sort_boxes_by_y(avatar_boxes)
+            sorted_box = self.discord_group_text(sorted_avatar_boxes, text_boxes, log_file)
+
+            layout_text_boxes = []
+            new_speaker_group_flag = False
+            current_speaker = None
+            last_avatar_center_x = None
+            for box in sorted_box:
+                if box.layout_det == 'avatar':
+                    new_speaker_group_flag = True
+                    last_avatar_center_x = box.center_x
+                    if talker_nickname is None:
+                        current_speaker = 'A' if box.center_x <= screen_width / 2 else 'B'
+                    continue
+                if box.layout_det == 'nickname':
+                    if not new_speaker_group_flag:
+                        continue
+                    speaker_name = ""
+                    if ocr_reader is not None:
+                        speaker_name, _ = ocr_reader(box)
+                    if talker_nickname and self._is_nickname_match(speaker_name, talker_nickname):
+                        current_speaker = 'A'
+                    elif speaker_name:
+                        current_speaker = 'B'
+                    elif last_avatar_center_x is not None:
+                        current_speaker = 'A' if last_avatar_center_x <= screen_width / 2 else 'B'
+                    continue
+                if box.layout_det == 'text':
+                    if current_speaker is None and last_avatar_center_x is not None:
+                        current_speaker = 'A' if last_avatar_center_x <= screen_width / 2 else 'B'
+                    if current_speaker is None:
+                        continue
+                    box.speaker = current_speaker
+                    layout_text_boxes.append(box)
+
+            grouped_boxes = self.group_text_boxes_by_y(layout_text_boxes)
+            metadata = {
+                'layout': result.get('layout', 'single'),
+                'speaker_A_count': len([b for b in layout_text_boxes if b.speaker == 'A']),
+                'speaker_B_count': len([b for b in layout_text_boxes if b.speaker == 'B']),
+                'confidence': result.get('metadata', {}).get('confidence', 1.0),
+                'frame_count': result.get('metadata', {}).get('frame_count', 0),
+                'group_count': len(grouped_boxes),
+                'groups': grouped_boxes
+            }
+            return layout_text_boxes, metadata
         # 合并所有文本框并按y坐标排序
         all_boxes = result['A'] + result['B']
         sorted_boxes = self.sort_boxes_by_y(all_boxes)
@@ -1054,6 +1112,22 @@ class ChatMessageProcessor:
         }
         
         return sorted_boxes, metadata
+
+    @staticmethod
+    def _normalize_nickname(text: str) -> str:
+        if not text:
+            return ""
+        return re.sub(r"[^0-9a-zA-Z\u4e00-\u9fff]+", "", text).lower()
+
+    def _is_nickname_match(self, speaker_name: str, talker_nickname: str, min_ratio: float = 0.8) -> bool:
+        normalized_speaker = self._normalize_nickname(speaker_name)
+        normalized_talker = self._normalize_nickname(talker_nickname)
+        if not normalized_speaker or not normalized_talker:
+            return False
+        if normalized_speaker in normalized_talker or normalized_talker in normalized_speaker:
+            return True
+        ratio = SequenceMatcher(None, normalized_speaker, normalized_talker).ratio()
+        return ratio >= min_ratio
 
     # Helper methods for nickname extraction
     def _calculate_distance(self, box1: TextBox, box2: TextBox) -> float:
