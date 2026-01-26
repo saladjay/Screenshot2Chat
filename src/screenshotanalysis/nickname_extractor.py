@@ -131,7 +131,8 @@ def extract_nicknames_smart(
     processor,
     text_rec=None,
     draw_results: bool = False,
-    output_dir: str = "test_output/smart_nicknames"
+    output_dir: str = "test_output/smart_nicknames",
+    min_top_margin_ratio: float = 0.05
 ) -> List[Dict[str, Any]]:
     """
     智能提取昵称（基于综合评分）- 使用新的Y-rank评分系统
@@ -197,9 +198,13 @@ def extract_nicknames_smart(
     logger.info(f"过滤掉 {len(edge_boxes)} 个极端边缘框")
     logger.info(f"保留 {len(filtered_boxes)} 个候选框")
     
-    # 只处理顶部区域的框（前20%）
+    # 只处理顶部区域的框（前20%），并排除最顶部边缘区域
     top_region_boundary = screen_height * 0.20
-    top_boxes = [box for box in filtered_boxes if box.y_min < top_region_boundary]
+    min_top_margin = screen_height * min_top_margin_ratio
+    top_boxes = [
+        box for box in filtered_boxes
+        if min_top_margin <= box.y_min < top_region_boundary
+    ]
     
     logger.info(f"顶部区域候选框: {len(top_boxes)} 个")
     
@@ -317,6 +322,7 @@ def extract_nicknames_from_text_boxes(
     output_dir: str = "test_output/smart_nicknames",
     top_k: int = 3,
     image_path: str | None = None,
+    min_top_margin_ratio: float = 0.05,
 ) -> List[Dict[str, Any]]:
     """
     Extract nickname candidates from precomputed text boxes.
@@ -372,7 +378,11 @@ def extract_nicknames_from_text_boxes(
             filtered_boxes.append(box)
 
     top_region_boundary = screen_height * 0.20
-    top_boxes = [box for box in filtered_boxes if box.y_min < top_region_boundary]
+    min_top_margin = screen_height * min_top_margin_ratio
+    top_boxes = [
+        box for box in filtered_boxes
+        if min_top_margin <= box.y_min < top_region_boundary
+    ]
 
     if not top_boxes:
         return []

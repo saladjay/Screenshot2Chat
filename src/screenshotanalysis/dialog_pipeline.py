@@ -8,6 +8,7 @@ tracking per-textbox model usage.
 
 from __future__ import annotations
 
+import math
 import os
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -24,7 +25,7 @@ from screenshotanalysis.app_agnostic_text_boxes import (
     suppress_nested_boxes,
 )
 from screenshotanalysis.nickname_extractor import extract_nicknames_from_text_boxes
-from screenshotanalysis.processors import ChatMessageProcessor, TextBox
+from screenshotanalysis.processors import ChatMessageProcessor, TextBox, LAYOUT_DET, TEXT_DET
 from screenshotanalysis.utils import ImageLoader, letterbox
 
 
@@ -38,6 +39,8 @@ def analyze_chat_image(
     processor: Optional[ChatMessageProcessor] = None,
     speaker_map: Optional[Dict[str, str]] = None,
     track_model_calls: bool = True,
+    split_layout_lines: bool = True,
+    multiline_height_ratio: float = 1.8,
 ) -> Tuple[Dict, Dict[int, Dict[str, int]]]:
     """
     Analyze a single chat image and return dialog JSON + model usage stats.
@@ -73,6 +76,8 @@ def analyze_chat_image(
 
     text_det_boxes = processor._get_all_text_boxes_from_text_det(text_det_results["results"])
     sorted_text_det_boxes = processor.sort_boxes_by_y(text_det_boxes)
+
+    main_height = processor.estimate_main_text_height(text_det_boxes)
 
     def box_key(box: TextBox) -> Tuple[int, int, int, int]:
         return tuple(int(v) for v in box.box.tolist())
@@ -112,6 +117,49 @@ def analyze_chat_image(
     )
     assign_speaker_by_edges(layout_text_boxes, image.shape[1])
 
+    def split_layout_text_boxes(boxes: List[TextBox]) -> List[TextBox]:
+        if not boxes or not main_height or main_height <= 0:
+            return boxes
+        split_boxes: List[TextBox] = []
+        for box in boxes:
+            if box.height < main_height * multiline_height_ratio:
+                split_boxes.append(box)
+                continue
+            num_lines = int(math.ceil(box.height / main_height))
+            if num_lines <= 1:
+                split_boxes.append(box)
+                continue
+            line_height = box.height / num_lines
+            for i in range(num_lines):
+                y_min = box.y_min + i * line_height
+                y_max = box.y_min + (i + 1) * line_height
+                if i == num_lines - 1:
+                    y_max = box.y_max
+                split_box = TextBox(
+                    box=[box.x_min, y_min, box.x_max, y_max],
+                    score=box.score,
+                    source=box.source,
+                    layout_det=box.layout_det,
+                )
+                split_box.speaker = box.speaker
+                split_boxes.append(split_box)
+        return split_boxes
+
+    dialog_boxes = layout_text_boxes
+    if split_layout_lines:
+        dialog_boxes = split_layout_text_boxes(dialog_boxes)
+    dialog_boxes = processor.sort_boxes_by_y(dialog_boxes)
+
+    if track_model_calls:
+        for box in dialog_boxes:
+            key = box_key(box)
+            if key not in model_call_by_box:
+                model_call_by_box[key] = {
+                    "text_det": 1 if box.source == TEXT_DET else 0,
+                    "layout_det": 1 if box.source == LAYOUT_DET else 0,
+                    "text_rec": 0,
+                }
+
     ocr_cache: Dict[int, Tuple[str, float]] = {}
 
     def ocr_reader(box: TextBox) -> Tuple[str, float]:
@@ -125,7 +173,14 @@ def analyze_chat_image(
             return ocr_cache[key]
         text_output = text_rec.predict_text(text_image)
         if track_model_calls:
-            model_call_by_box.setdefault(key, {"text_det": 0, "layout_det": 0, "text_rec": 0})
+            model_call_by_box.setdefault(
+                key,
+                {
+                    "text_det": 1 if box.source == TEXT_DET else 0,
+                    "layout_det": 1 if box.source == LAYOUT_DET else 0,
+                    "text_rec": 0,
+                },
+            )
             model_call_by_box[key]["text_rec"] += 1
         if not text_output:
             ocr_cache[key] = ("", 0.0)
@@ -150,7 +205,7 @@ def analyze_chat_image(
     dialogs: List[Dict] = []
     model_calls_by_dialog: Dict[int, Dict[str, int]] = {}
 
-    for idx, box in enumerate(sorted_boxes):
+    for idx, box in enumerate(dialog_boxes):
         text_value, _ = ocr_reader(box)
         speaker = speaker_map.get(box.speaker, speaker_map.get(None, "user"))
         dialog = {
@@ -266,6 +321,8 @@ def analyze_chat_images(
     output_dir: str,
     draw_dir: Optional[str] = None,
     track_model_calls: bool = True,
+    split_layout_lines: bool = True,
+    multiline_height_ratio: float = 1.8,
 ) -> List[Dict]:
     os.makedirs(output_dir, exist_ok=True)
     if draw_dir:
@@ -295,6 +352,8 @@ def analyze_chat_images(
             text_rec=text_rec,
             processor=processor,
             track_model_calls=track_model_calls,
+            split_layout_lines=split_layout_lines,
+            multiline_height_ratio=multiline_height_ratio,
         )
         outputs.append(output_payload)
     return outputs
@@ -308,6 +367,17 @@ if __name__ == "__main__":
     parser.add_argument("--output", default="output_example.json", help="Output JSON path (single image)")
     parser.add_argument("--output-dir", default="dialog_outputs", help="Output directory for batch JSON")
     parser.add_argument("--draw-dir", default=None, help="Optional directory for overlay images")
+    parser.add_argument(
+        "--no-split-layout-lines",
+        action="store_true",
+        help="Disable splitting tall layout_det text boxes into multiple lines",
+    )
+    parser.add_argument(
+        "--multiline-height-ratio",
+        type=float,
+        default=1.8,
+        help="Height ratio threshold to split layout_det text boxes into multiple lines",
+    )
     args = parser.parse_args()
 
     if os.path.isdir(args.input_path):
@@ -315,6 +385,8 @@ if __name__ == "__main__":
             input_path=args.input_path,
             output_dir=args.output_dir,
             draw_dir=args.draw_dir,
+            split_layout_lines=not args.no_split_layout_lines,
+            multiline_height_ratio=args.multiline_height_ratio,
         )
     else:
         draw_output_path = None
@@ -326,4 +398,6 @@ if __name__ == "__main__":
             image_path=args.input_path,
             output_path=args.output,
             draw_output_path=draw_output_path,
+            split_layout_lines=not args.no_split_layout_lines,
+            multiline_height_ratio=args.multiline_height_ratio,
         )
