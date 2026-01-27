@@ -183,7 +183,7 @@ class ChatMessageProcessor:
                     if log_file:
                         print(f'{image_box}  {image_boxes[-1].width * image_boxes[-1].height}', file=log_file)
         main_area_value = self.estimate_main_box_area(image_boxes, bin_size=100, log_file=log_file)
-        print(f'main_area:{main_area_value}', file=log_file)
+        # print(f'main_area:{main_area_value}', file=log_file)
         filtered_image_boxes = []
         for box in image_boxes:
             if self.filter_by_image_avatar_area(main_area_value, box):
