@@ -27,6 +27,12 @@ from screenshotanalysis.app_agnostic_text_boxes import (
 from screenshotanalysis.nickname_extractor import extract_nicknames_from_text_boxes
 from screenshotanalysis.processors import ChatMessageProcessor, TextBox
 from screenshotanalysis.utils import ImageLoader, letterbox
+from screenshotanalysis.config_manager import load_config
+from screenshotanalysis.exceptions import (
+    DialogCountTooLowError,
+    NicknameNotFoundError,
+    NicknameScoreTooLowError,
+)
 
 
 def analyze_chat_image(
@@ -78,6 +84,11 @@ def analyze_chat_image(
         text_rec.load_model()
     total_start = time.perf_counter()
     speaker_map = speaker_map or {"A": "talker", "B": "user", None: "user"}
+    config = load_config()
+    nickname_min_score = float(config["nickname"]["min_score"])
+    nickname_min_top_margin_ratio = float(config["nickname"].get("min_top_margin_ratio", 0.05))
+    nickname_top_region_ratio = float(config["nickname"].get("top_region_ratio", 0.2))
+    min_bubble_count = int(config["dialog"]["min_bubble_count"])
 
     preprocess_start = time.perf_counter()
     image = ImageLoader.load_image(image_path)
@@ -149,9 +160,21 @@ def analyze_chat_image(
         ocr_reader=ocr_reader,
         draw_results=False,
         image_path=image_path,
+        min_top_margin_ratio=nickname_min_top_margin_ratio,
+        top_region_ratio=nickname_top_region_ratio,
     )
     add_timing("nickname_extract", time.perf_counter() - nickname_extract_start)
-    talker_nickname = nickname_candidates[0]["text"] if nickname_candidates else ""
+    if not nickname_candidates:
+        raise NicknameNotFoundError(
+            f"No nickname candidate found (min_score={nickname_min_score})."
+        )
+    top_candidate = nickname_candidates[0]
+    top_score = float(top_candidate.get("nickname_score", 0.0))
+    if top_score < nickname_min_score:
+        raise NicknameScoreTooLowError(
+            f"Nickname score {top_score:.2f} below threshold {nickname_min_score:.2f}."
+        )
+    talker_nickname = top_candidate.get("text", "")
 
     format_start = time.perf_counter()
     sorted_boxes, metadata = processor.format_conversation_app_agnostic(
@@ -210,6 +233,11 @@ def analyze_chat_image(
             )
             model_calls_by_dialog[idx] = dialog["model_calls"]
         dialogs.append(dialog)
+
+    if len(dialogs) < min_bubble_count:
+        raise DialogCountTooLowError(
+            f"Dialog count {len(dialogs)} below threshold {min_bubble_count}."
+        )
 
     add_timing("total", time.perf_counter() - total_start)
 

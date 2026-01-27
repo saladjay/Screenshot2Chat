@@ -118,9 +118,9 @@ class ChatLayoutAnalyzer:
         """
         try:
             # 加载模型
-            self.logger.info("analyze_chat_screenshot: 开始加载模型...")
+            # self.logger.info("analyze_chat_screenshot: 开始加载模型...")
             # model = self.load_model()
-            self.logger.info(f"analyze_chat_screenshot: 模型加载完成, model={self.model}")
+            # self.logger.info(f"analyze_chat_screenshot: 模型加载完成, model={self.model}")
             self.logger.info(f"image type:{type(image)}")
             if not isinstance(image, np.ndarray):
                 # 预处理图像
@@ -134,15 +134,16 @@ class ChatLayoutAnalyzer:
 
                 image = np.array(image)
 
-            self.logger.info(f"image type:{type(image)}, shape:{image.shape}")
+            # self.logger.info(f"image type:{type(image)}, shape:{image.shape}")
             
             if kwargs.get("letterbox", None) is None:
                 self.logger.info("开始 letterbox 处理...")
                 image, padding = letterbox(image)
+                self.logger.info(f"letterbox 完成, padding={padding}")
             else:
                 padding = kwargs.get("padding")
                 self.logger.info(f"使用自定义 padding: {padding}")
-            self.logger.info(f"letterbox 完成, padding={padding}")
+            
 
             # 执行版面分析
             self.logger.info("开始版面分析...")
