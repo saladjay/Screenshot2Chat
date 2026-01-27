@@ -9,6 +9,7 @@ Mirrors dialog_pipeline but uses the demo "final" output selection:
 from __future__ import annotations
 
 import os
+import logging
 import time
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -35,6 +36,9 @@ from screenshotanalysis.exceptions import (
     NicknameScoreTooLowError,
     UnknownSpeakerTooHighError,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 def analyze_chat_image(
@@ -71,7 +75,7 @@ def analyze_chat_image(
         timings[stage][0] = count + timings[stage][0]
         timings[stage][1] = duration + timings[stage][1]
         if stage != 'dialog_ocr':
-            print(f'{stage}: {duration} (calls: {count})')
+            logger.info(f"{stage}: {duration} (calls: {count})")
 
     if processor is None:
         processor = ChatMessageProcessor()
@@ -99,7 +103,7 @@ def analyze_chat_image(
         image = image.convert("RGB")
     image = np.array(image)
     image, padding = letterbox(image)
-    print(image.shape)
+
     add_timing("preprocess", time.perf_counter() - preprocess_start)
 
     preprocess_dict = {"letterbox": True, "padding": padding}
@@ -215,6 +219,15 @@ def analyze_chat_image(
 
     layout_name = metadata.get("layout", "")
     final_boxes = layout_text_boxes if layout_name.startswith("double") else sorted_boxes
+
+    def _final_box_sort_key(box: object) -> Tuple[float, float]:
+        if isinstance(box, dict):
+            x_min, y_min, _, _ = box.get("box", [0, 0, 0, 0])
+        else:
+            x_min, y_min, _, _ = box.box.tolist()
+        return float(y_min), float(x_min)
+
+    final_boxes = sorted(final_boxes, key=_final_box_sort_key)
 
     dialogs: List[Dict] = []
     model_calls_by_dialog: Dict[int, Dict[str, int]] = {}
@@ -381,15 +394,20 @@ def analyze_chat_images(
             timing_sums[key][1] += float(value[1])
 
     if outputs and timing_sums:
-        print("Average timings (s):")
+        logger.info("Average timings (s):")
         for key, value in sorted(timing_sums.items()):
             avg_time = value[1] / len(outputs)
-            print(f"  {key}: {avg_time:.4f} (calls: {int(value[0])})")
+            logger.info(f"  {key}: {avg_time:.4f} (calls: {int(value[0])})")
     return outputs
 
 
 if __name__ == "__main__":
     import argparse
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
 
     parser = argparse.ArgumentParser(description="Run dialog analysis for one image.")
     parser.add_argument("input_path", help="Path to input image or directory")
@@ -416,8 +434,8 @@ if __name__ == "__main__":
             draw_output_path=draw_output_path,
         )
         if output_payload.get("timings"):
-            print("Timings (s):")
+            logger.info("Timings (s):")
             for key, value in sorted(output_payload["timings"].items()):
-                print(f"  {key}: {value[1]:.4f} (calls: {int(value[0])})")
+                logger.info(f"  {key}: {value[1]:.4f} (calls: {int(value[0])})")
     end_time = time.perf_counter()
-    print(f"excute total time: {end_time - start_time:.4f}s")
+    logger.info(f"excute total time: {end_time - start_time:.4f}s")
