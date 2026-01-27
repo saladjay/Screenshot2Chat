@@ -196,10 +196,13 @@ def analyze_chat_image(
     for idx, box in enumerate(final_boxes):
         text_value, _ = ocr_reader(box)
         speaker = speaker_map.get(box.speaker, speaker_map.get(None, "user"))
+        x_min, y_min, x_max, y_max = box.box.tolist()
+        x_min, x_max = x_min / image.shape[1], x_max / image.shape[1]
+        y_min, y_max = y_min / image.shape[0], y_max / image.shape[0]
         dialog = {
             "speaker": speaker,
             "text": text_value,
-            "box": [int(v) for v in box.box.tolist()],
+            "box": [x_min, y_min, x_max, y_max],
         }
         if track_model_calls:
             dialog["model_calls"] = model_call_by_box.get(
