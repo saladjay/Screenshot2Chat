@@ -217,6 +217,15 @@ def analyze_chat_image(
     layout_name = metadata.get("layout", "")
     final_boxes = layout_text_boxes if layout_name.startswith("double") else sorted_boxes
 
+    def _final_box_sort_key(box: object) -> Tuple[float, float]:
+        if isinstance(box, dict):
+            x_min, y_min, _, _ = box.get("box", [0, 0, 0, 0])
+        else:
+            x_min, y_min, _, _ = box.box.tolist()
+        return float(y_min), float(x_min)
+
+    final_boxes = sorted(final_boxes, key=_final_box_sort_key)
+
     dialogs: List[Dict] = []
     model_calls_by_dialog: Dict[int, Dict[str, int]] = {}
 
