@@ -25,6 +25,7 @@ from screenshotanalysis.app_agnostic_text_boxes import (
     suppress_nested_boxes,
 )
 from screenshotanalysis.nickname_extractor import extract_nicknames_from_text_boxes
+from screenshotanalysis.basemodel import OTHER, UNKNOWN, USER
 from screenshotanalysis.processors import ChatMessageProcessor, TextBox
 from screenshotanalysis.utils import ImageLoader, letterbox
 from screenshotanalysis.config_manager import load_config
@@ -32,6 +33,7 @@ from screenshotanalysis.exceptions import (
     DialogCountTooLowError,
     NicknameNotFoundError,
     NicknameScoreTooLowError,
+    UnknownSpeakerTooHighError,
 )
 
 
@@ -83,12 +85,13 @@ def analyze_chat_image(
         text_rec = ChatTextRecognition(model_name="PP-OCRv5_server_rec", lang="en")
         text_rec.load_model()
     total_start = time.perf_counter()
-    speaker_map = speaker_map or {"A": "talker", "B": "user", None: "user"}
+    speaker_map = speaker_map or {OTHER: OTHER, USER: USER, UNKNOWN: UNKNOWN, None: UNKNOWN}
     config = load_config()
     nickname_min_score = float(config["nickname"]["min_score"])
     nickname_min_top_margin_ratio = float(config["nickname"].get("min_top_margin_ratio", 0.05))
     nickname_top_region_ratio = float(config["nickname"].get("top_region_ratio", 0.2))
     min_bubble_count = int(config["dialog"]["min_bubble_count"])
+    max_unknown_ratio = float(config["dialog"].get("max_unknown_ratio", 0.5))
 
     preprocess_start = time.perf_counter()
     image = ImageLoader.load_image(image_path)
@@ -215,10 +218,11 @@ def analyze_chat_image(
 
     dialogs: List[Dict] = []
     model_calls_by_dialog: Dict[int, Dict[str, int]] = {}
+    unknown_count = 0
 
     for idx, box in enumerate(final_boxes):
         text_value, _ = ocr_reader(box)
-        speaker = speaker_map.get(box.speaker, speaker_map.get(None, "user"))
+        speaker = speaker_map.get(box.speaker, speaker_map.get(None, UNKNOWN))
         x_min, y_min, x_max, y_max = box.box.tolist()
         x_min, x_max = x_min / image.shape[1], x_max / image.shape[1]
         y_min, y_max = y_min / image.shape[0], y_max / image.shape[0]
@@ -227,6 +231,8 @@ def analyze_chat_image(
             "text": text_value,
             "box": [x_min, y_min, x_max, y_max],
         }
+        if speaker == UNKNOWN:
+            unknown_count += 1
         if track_model_calls:
             dialog["model_calls"] = model_call_by_box.get(
                 box_key(box), {"text_det": 0, "layout_det": 0, "text_rec": 0}
@@ -239,11 +245,19 @@ def analyze_chat_image(
             f"Dialog count {len(dialogs)} below threshold {min_bubble_count}."
         )
 
+    unknown_ratio = unknown_count / len(dialogs) if dialogs else 0.0
+    if unknown_ratio > max_unknown_ratio:
+        raise UnknownSpeakerTooHighError(
+            f"Unknown speaker ratio {unknown_ratio:.2f} exceeds {max_unknown_ratio:.2f}."
+        )
+
     add_timing("total", time.perf_counter() - total_start)
 
     output_payload = {
         "talker_nickname": talker_nickname,
         "dialogs": dialogs,
+        "unknown_speaker_count": unknown_count,
+        "unknown_speaker_ratio": unknown_ratio,
         "timings": timings,
     }
 
@@ -278,21 +292,21 @@ def draw_dialog_overlays(
     output_path: str,
     speaker_map: Optional[Dict[str, str]] = None,
 ) -> None:
-    speaker_map = speaker_map or {"A": "talker", "B": "user", None: "user"}
+    speaker_map = speaker_map or {OTHER: OTHER, USER: USER, UNKNOWN: UNKNOWN, None: UNKNOWN}
     color_map = {
-        "talker": (255, 0, 0),  # blue
-        "user": (0, 0, 255),
-        "Unknown": (128, 128, 128),
+        OTHER: (255, 0, 0),  # blue
+        USER: (0, 0, 255),
+        UNKNOWN: (128, 128, 128),
     }
     draw_image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
     for box in boxes:
         if isinstance(box, dict):
             x_min, y_min, x_max, y_max = box["box"]
-            speaker = box.get("speaker", "user")
+            speaker = box.get("speaker", UNKNOWN)
         else:
             x_min, y_min, x_max, y_max = [int(v) for v in box.box.tolist()]
-            speaker = speaker_map.get(getattr(box, "speaker", None), "user")
-        color = color_map.get(speaker, color_map["Unknown"])
+            speaker = speaker_map.get(getattr(box, "speaker", None), UNKNOWN)
+        color = color_map.get(speaker, color_map[UNKNOWN])
         cv2.rectangle(draw_image, (x_min, y_min), (x_max, y_max), color, 2)
 
     if nickname_candidate:

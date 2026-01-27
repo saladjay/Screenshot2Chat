@@ -11,7 +11,8 @@ from copy import deepcopy
 from screenshotanalysis.experience_formula import *
 from screenshotanalysis.utils import DISCORD, WHATSAPP, INSTAGRAM, TELEGRAM
 from screenshotanalysis.chat_layout_detector import ChatLayoutDetector
-from screenshotanalysis.basemodel import TextBox
+from screenshotanalysis.basemodel import TextBox, OTHER, UNKNOWN, USER
+
 NAME_LINE = 'name_line' # 用户名字
 MULTI_LINE = 'multi_line' # 多行聊天框
 SINGLE_LINE = 'single_line' # 单行聊天框
@@ -320,6 +321,7 @@ class ChatMessageProcessor:
         area2 = (boxes2[:, 2] - boxes2[:, 0]) * (boxes2[:, 3] - boxes2[:, 1])  # (m,)
         
         # 使用广播机制计算交集区域的坐标
+        # 增加维度以便广播计算: (n,1,2) 和 (m,2) -> (n,m,2)
         lt = np.maximum(boxes1[:, None, :2], boxes2[:, :2])  # 左上角交点 (n,m,2)
         rb = np.minimum(boxes1[:, None, 2:], boxes2[:, 2:])  # 右下角交点 (n,m,2)
         
@@ -430,11 +432,11 @@ class ChatMessageProcessor:
         
         for box in layout_det_boxes:
             if id(box) in a_ids:
-                box.speaker = 'A'
+                box.speaker = OTHER
             elif id(box) in b_ids:
-                box.speaker = 'B'
+                box.speaker = USER
             else:
-                box.speaker = 'Unknown'
+                box.speaker = UNKNOWN
         
         if log_file:
             print(f'Assigned speakers: A={len(result["A"])}, B={len(result["B"])}', file=log_file)
@@ -1052,7 +1054,8 @@ class ChatMessageProcessor:
                     new_speaker_group_flag = True
                     last_avatar_center_x = box.center_x
                     if talker_nickname is None:
-                        current_speaker = 'A' if box.center_x <= screen_width / 2 else 'B'
+                        current_speaker = OTHER if box.center_x <= screen_width / 2 else USER
+
                     continue
                 if box.layout_det == 'nickname':
                     if not new_speaker_group_flag:
@@ -1061,15 +1064,17 @@ class ChatMessageProcessor:
                     if ocr_reader is not None:
                         speaker_name, _ = ocr_reader(box)
                     if talker_nickname and self._is_nickname_match(speaker_name, talker_nickname):
-                        current_speaker = 'A'
+                        current_speaker = OTHER
                     elif speaker_name:
-                        current_speaker = 'B'
+                        current_speaker = USER
                     elif last_avatar_center_x is not None:
-                        current_speaker = 'A' if last_avatar_center_x <= screen_width / 2 else 'B'
+                        current_speaker = OTHER if last_avatar_center_x <= screen_width / 2 else USER
+
                     continue
                 if box.layout_det == 'text':
                     if current_speaker is None and last_avatar_center_x is not None:
-                        current_speaker = 'A' if last_avatar_center_x <= screen_width / 2 else 'B'
+                        current_speaker = OTHER if last_avatar_center_x <= screen_width / 2 else USER
+
                     if current_speaker is None:
                         continue
                     box.speaker = current_speaker
@@ -1078,8 +1083,9 @@ class ChatMessageProcessor:
             grouped_boxes = self.group_text_boxes_by_y(layout_text_boxes)
             metadata = {
                 'layout': result.get('layout', 'single'),
-                'speaker_A_count': len([b for b in layout_text_boxes if b.speaker == 'A']),
-                'speaker_B_count': len([b for b in layout_text_boxes if b.speaker == 'B']),
+                'speaker_A_count': len([b for b in layout_text_boxes if b.speaker == OTHER]),
+                'speaker_B_count': len([b for b in layout_text_boxes if b.speaker == USER]),
+
                 'confidence': result.get('metadata', {}).get('confidence', 1.0),
                 'frame_count': result.get('metadata', {}).get('frame_count', 0),
                 'group_count': len(grouped_boxes),
@@ -1094,9 +1100,9 @@ class ChatMessageProcessor:
         a_ids = {id(box) for box in result['A']}
         for box in sorted_boxes:
             if id(box) in a_ids:
-                box.speaker = 'A'
+                box.speaker = OTHER
             else:
-                box.speaker = 'B'
+                box.speaker = USER
         
         grouped_boxes = self.group_text_boxes_by_y(sorted_boxes)
 
@@ -1232,11 +1238,11 @@ class ChatMessageProcessor:
         
         for box in nickname_boxes:
             if hasattr(box, 'speaker'):
-                if box.speaker == 'A':
+                if box.speaker == OTHER:
                     speaker_a_boxes.append(box)
                     if log_file:
                         print(f"  Speaker A: {box.box.tolist()}", file=log_file)
-                elif box.speaker == 'B':
+                elif box.speaker == USER:
                     speaker_b_boxes.append(box)
                     if log_file:
                         print(f"  Speaker B: {box.box.tolist()}", file=log_file)
@@ -1338,13 +1344,14 @@ class ChatMessageProcessor:
         avatar_count = 0
         for avatar_box in avatar_boxes:
             # Skip avatars without speaker assignment
-            if not hasattr(avatar_box, 'speaker') or avatar_box.speaker not in ['A', 'B']:
+            if not hasattr(avatar_box, 'speaker') or avatar_box.speaker not in [OTHER, USER]:
                 if log_file:
                     print(f"\nSkipping avatar without valid speaker: {avatar_box.box.tolist()}", file=log_file)
                 continue
             
             avatar_count += 1
             speaker = avatar_box.speaker
+            speaker_key = "A" if speaker == OTHER else "B"
             
             if log_file:
                 print(f"\n--- Processing Avatar {avatar_count} for Speaker {speaker} ---", file=log_file)
@@ -1400,8 +1407,8 @@ class ChatMessageProcessor:
                 nickname_box.speaker = speaker
                 
                 # Store result (only if we haven't found one for this speaker yet)
-                if result[speaker] is None:
-                    result[speaker] = nickname_box
+                if result[speaker_key] is None:
+                    result[speaker_key] = nickname_box
                     if log_file:
                         print(f"\nSelection: Nearest box for Speaker {speaker}", file=log_file)
                         print(f"  Box: {nickname_box.box.tolist()}", file=log_file)
@@ -1617,14 +1624,14 @@ class ChatMessageProcessor:
                 print(f"  Analyzing {len(layout_det_boxes)} layout_det boxes for speaker positions:", file=log_file)
             
             for box in layout_det_boxes:
-                if hasattr(box, 'speaker') and box.speaker in ['A', 'B']:
+                if hasattr(box, 'speaker') and box.speaker in [OTHER, USER]:
                     if box.center_x < screen_center:
-                        if box.speaker == 'A':
+                        if box.speaker == OTHER:
                             a_left_count += 1
                         else:
                             b_left_count += 1
                     else:
-                        if box.speaker == 'A':
+                        if box.speaker == OTHER:
                             a_right_count += 1
                         else:
                             b_right_count += 1
@@ -1648,17 +1655,17 @@ class ChatMessageProcessor:
         # Assign to result dictionary
         if left_is_a:
             if left_nickname:
-                left_nickname.speaker = 'A'
+                left_nickname.speaker = OTHER
                 result['A'] = left_nickname
             if right_nickname:
-                right_nickname.speaker = 'B'
+                right_nickname.speaker = USER
                 result['B'] = right_nickname
         else:
             if left_nickname:
-                left_nickname.speaker = 'B'
+                left_nickname.speaker = USER
                 result['B'] = left_nickname
             if right_nickname:
-                right_nickname.speaker = 'A'
+                right_nickname.speaker = OTHER
                 result['A'] = right_nickname
         
         # Summary

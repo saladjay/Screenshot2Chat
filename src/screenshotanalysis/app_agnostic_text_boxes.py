@@ -13,17 +13,19 @@ import os
 import cv2
 import numpy as np
 
+from screenshotanalysis.basemodel import OTHER, UNKNOWN, USER
+
 
 def draw_boxes_by_speaker(image, boxes):
     speaker_colors = {
-        "A": (0, 0, 255),
-        "B": (255, 0, 0),
-        "Unknown": (128, 128, 128),
+        OTHER: (0, 0, 255),
+        USER: (255, 0, 0),
+        UNKNOWN: (128, 128, 128),
     }
     for box in boxes:
         x_min, y_min, x_max, y_max = box.box.tolist()
-        speaker = getattr(box, "speaker", "Unknown")
-        color = speaker_colors.get(speaker, speaker_colors["Unknown"])
+        speaker = getattr(box, "speaker", UNKNOWN)
+        color = speaker_colors.get(speaker, speaker_colors[UNKNOWN])
         image = cv2.rectangle(
             image,
             (int(x_min), int(y_min)),
@@ -129,7 +131,7 @@ def assign_speaker_by_center_x(boxes):
     centers = [box.center_x for box in boxes]
     pivot = float(np.median(centers))
     for box in boxes:
-        box.speaker = "A" if box.center_x <= pivot else "B"
+        box.speaker = OTHER if box.center_x <= pivot else USER
 
 
 def assign_speaker_by_edges(
@@ -201,9 +203,9 @@ def assign_speaker_by_edges(
             if xmin_bin in left_bins and xmax_bin in right_bins:
                 continue
             if xmin_bin in left_bins:
-                box.speaker = "A"
+                box.speaker = OTHER
             elif xmax_bin in right_bins:
-                box.speaker = "B"
+                box.speaker = USER
 
     if left_bins and not right_bins and avatar_boxes:
         max_gap = image_width * avatar_max_gap_ratio
@@ -221,10 +223,10 @@ def assign_speaker_by_edges(
                 if min_h <= 0:
                     continue
                 if inter_y / min_h >= avatar_overlap_ratio:
-                    box.speaker = "A"
+                    box.speaker = OTHER
                     break
             if box.speaker is None:
-                box.speaker = "B"
+                box.speaker = USER
 
     if any(box.speaker is None for box in boxes):
         assign_speaker_by_center_x(boxes)
@@ -264,10 +266,10 @@ def assign_speaker_by_avatar_order(
                 best_avatar = avatar
         if best_avatar is None:
             if not drop_orphans:
-                box.speaker = "Unknown"
+                box.speaker = UNKNOWN
                 kept.append(box)
             continue
-        box.speaker = "A" if best_avatar.center_x <= image_width / 2 else "B"
+        box.speaker = OTHER if best_avatar.center_x <= image_width / 2 else USER
         kept.append(box)
     return kept
 
@@ -303,9 +305,9 @@ def assign_speaker_by_nearest_avatar(
                 best_gap = gap
                 best_avatar = avatar
         if best_avatar is not None and best_gap is not None and best_gap <= max_gap:
-            box.speaker = "A" if best_avatar.center_x <= image_width / 2 else "B"
+            box.speaker = OTHER if best_avatar.center_x <= image_width / 2 else USER
         else:
-            box.speaker = "B"
+            box.speaker = USER
 
 
 def filter_small_layout_boxes(boxes, min_height_ratio=0.6):
@@ -421,10 +423,10 @@ def assign_speaker_by_nickname_in_layout(
             continue
         text_value = text_output[0].get("rec_text", "")
         if text_value.startswith(nickname):
-            box.speaker = "A"
+            box.speaker = OTHER
             assigned_any = True
         else:
-            box.speaker = "B"
+            box.speaker = USER
             assigned_any = True
     return assigned_any
 

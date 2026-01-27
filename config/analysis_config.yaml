@@ -4,3 +4,4 @@ nickname:
   top_region_ratio: 0.2
 dialog:
   min_bubble_count: 5
+  max_unknown_ratio: 0.5

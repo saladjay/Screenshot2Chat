@@ -24,7 +24,8 @@ from screenshotanalysis.app_agnostic_text_boxes import (
     suppress_nested_boxes,
 )
 from screenshotanalysis.nickname_extractor import extract_nicknames_from_text_boxes
-from screenshotanalysis.processors import ChatMessageProcessor, TextBox
+from screenshotanalysis.basemodel import OTHER, UNKNOWN, USER
+from screenshotanalysis.processors import ChatMessageProcessor, TextBox, LAYOUT_DET, TEXT_DET
 from screenshotanalysis.utils import ImageLoader, letterbox
 from screenshotanalysis.config_manager import load_config, update_config
 
@@ -78,7 +79,7 @@ def analyze_chat_image(
         text_rec = ChatTextRecognition(model_name="PP-OCRv5_server_rec", lang="en")
         text_rec.load_model()
 
-    speaker_map = speaker_map or {"A": "talker", "B": "user", None: "user"}
+    speaker_map = speaker_map or {OTHER: OTHER, USER: USER, UNKNOWN: UNKNOWN, None: UNKNOWN}
 
     config = _load_analysis_config(config_path, runtime_config, persist_runtime_config)
     nickname_min_score = float(config["nickname"]["min_score"])
@@ -211,7 +212,7 @@ def analyze_chat_image(
 
     for idx, box in enumerate(sorted_boxes):
         text_value, _ = ocr_reader(box)
-        speaker = speaker_map.get(box.speaker, speaker_map.get(None, "user"))
+        speaker = speaker_map.get(box.speaker, speaker_map.get(None, UNKNOWN))
         dialog = {
             "speaker": speaker,
             "text": text_value,
@@ -278,21 +279,21 @@ def draw_dialog_overlays(
     output_path: str,
     speaker_map: Optional[Dict[str, str]] = None,
 ) -> None:
-    speaker_map = speaker_map or {"A": "talker", "B": "user", None: "user"}
+    speaker_map = speaker_map or {OTHER: OTHER, USER: USER, UNKNOWN: UNKNOWN, None: UNKNOWN}
     color_map = {
-        "talker": (255, 0, 0),  # blue
-        "user": (0, 0, 255),
-        "Unknown": (128, 128, 128),
+        OTHER: (255, 0, 0),  # blue
+        USER: (0, 0, 255),
+        UNKNOWN: (128, 128, 128),
     }
     draw_image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
     for box in boxes:
         if isinstance(box, dict):
             x_min, y_min, x_max, y_max = box["box"]
-            speaker = box.get("speaker", "user")
+            speaker = box.get("speaker", UNKNOWN)
         else:
             x_min, y_min, x_max, y_max = [int(v) for v in box.box.tolist()]
-            speaker = speaker_map.get(getattr(box, "speaker", None), "user")
-        color = color_map.get(speaker, color_map["Unknown"])
+            speaker = speaker_map.get(getattr(box, "speaker", None), UNKNOWN)
+        color = color_map.get(speaker, color_map[UNKNOWN])
         cv2.rectangle(draw_image, (x_min, y_min), (x_max, y_max), color, 2)
 
     if nickname_candidate:

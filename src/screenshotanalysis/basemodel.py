@@ -1,5 +1,7 @@
 import numpy as np
-
+USER = "user"
+OTHER = "other"
+UNKNOWN = "unknown"
 class TextBox:
     def __init__(self, box, score, **kwargs):
         self.box = box

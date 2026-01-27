@@ -27,3 +27,7 @@ class DialogAnalysisError(AnalysisError):
 
 class DialogCountTooLowError(DialogAnalysisError):
     """Raised when dialog bubble count is below the configured threshold."""
+
+
+class UnknownSpeakerTooHighError(DialogAnalysisError):
+    """Raised when unknown speaker ratio exceeds the configured threshold."""

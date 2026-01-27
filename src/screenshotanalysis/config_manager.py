@@ -13,6 +13,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     },
     "dialog": {
         "min_bubble_count": 5,
+        "max_unknown_ratio": 0.5,
     },
 }
 
