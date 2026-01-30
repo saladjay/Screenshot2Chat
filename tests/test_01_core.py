@@ -66,13 +66,24 @@ class TestChatLayoutAnalyzer:
         analyzer = ChatLayoutAnalyzer(model_name="PP-DocLayoutV2")
         analyzer.load_model()
         assert analyzer.model is not None
+
         analyzer = ChatLayoutAnalyzer(model_name="PP-OCRv5_server_det")
         analyzer.load_model()
         assert analyzer.model is not None
+        
         en_rec = ChatTextRecognition(model_name="PP-OCRv5_server_rec", lang="en")
         en_rec.load_model()
         assert en_rec.model is not None
         
+        ar_rec = ChatTextRecognition(model_name="PP-OCRv5_server_rec", lang="ar")
+        ar_rec.load_model()
+        assert ar_rec.model is not None
+
+        pt_rec = ChatTextRecognition(model_name="PP-OCRv5_server_rec", lang="pt")
+        pt_rec.load_model()
+        assert pt_rec.model is not None
+
+        # en/ar/pt/es/zh
     
 
 if __name__ == "__main__":
