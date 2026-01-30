@@ -12,6 +12,7 @@ from .exceptions import (
     NicknameScoreTooLowError,
     DialogAnalysisError,
     DialogCountTooLowError,
+    UnknownSpeakerTooHighError,
 )
 from .app_agnostic_text_boxes import (
     assign_speaker_by_avatar_order,
@@ -45,6 +46,7 @@ __all__ = [
     "NicknameScoreTooLowError",
     "DialogAnalysisError",
     "DialogCountTooLowError",
+    "UnknownSpeakerTooHighError",
     "assign_speaker_by_avatar_order",
     "assign_speaker_by_center_x",
     "assign_speaker_by_edges",
@@ -63,21 +65,26 @@ __all__ = [
     "get_models",
     "layout_det",
     "text_det",
-    "en_rec"
+    "en_rec",
+    "ar_rec",
+    "pt_rec"
 ]
 
 
 layout_det = ChatLayoutAnalyzer("PP-DocLayoutV2")
 text_det = ChatLayoutAnalyzer("PP-OCRv5_server_det")
-en_rec = ChatTextRecognition("PP-OCRv5_server_rec")
-
+en_rec = ChatTextRecognition("PP-OCRv5_server_rec", lang='en')
+ar_rec = ChatTextRecognition("PP-OCRv5_server_rec", lang="ar")
+pt_rec = ChatTextRecognition("PP-OCRv5_server_rec", lang="pt")
 
 def get_models():
-    global layout_det, text_det, en_rec
+    global layout_det, text_det, en_rec, ar_rec, pt_rec
     try:
         layout_det.load_model()
         text_det.load_model()
         en_rec.load_model()
+        ar_rec.load_model()
+        pt_rec.load_model()
     except Exception as e:
         print(f"Error loading models: {e}")
-    return {"layout_det": layout_det, "text_det": text_det, "en_rec": en_rec}
+    return {"layout_det": layout_det, "text_det": text_det, "en_rec": en_rec, "ar_rec": ar_rec, "pt_rec": pt_rec, "es_rec": pt_rec}
