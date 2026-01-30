@@ -24,9 +24,14 @@ class ChatTextRecognition:
     def load_model(self):
         if self.model_name == 'PaddleOCR':
             self.model = PaddleOCR(self.lang)
-        if self.model_name == 'PP-OCRv5_server_rec':
+        if self.model_name == 'PP-OCRv5_server_rec' and self.lang in ['en', 'multi', 'zh']:
             self.model = TextRecognition(model_name="PP-OCRv5_server_rec", model_dir=os.path.join(PADDLE_MODEL_DIR, 'models/PP-OCRv5_server_rec/'))
-
+        elif self.model_name == 'PP-OCRv5_server_rec' and self.lang in ['pt', 'es']: # 西班牙 en/ar/pt/es/zh
+            self.model = TextRecognition(model_name="latin_PP-OCRv5_mobile_rec", model_dir=os.path.join(PADDLE_MODEL_DIR, 'models/latin_PP-OCRv5_mobile_rec/'))
+        elif self.model_name == 'PP-OCRv5_server_rec' and self.lang in ['ar']: # 阿拉伯
+            self.model = TextRecognition(model_name="arabic_PP-OCRv5_mobile_rec", model_dir=os.path.join(PADDLE_MODEL_DIR, 'models/arabic_PP-OCRv5_mobile_rec/'))
+        else:
+            raise ValueError(f"不支持的语言: {self.lang}, {self.model_name}, 目前支持 en, multi, zh, pt, es, ar")
     def predict_text(self, image:np.ndarray):
         if self.model_name != 'PaddleOCR':
             text = self.model.predict(image)
