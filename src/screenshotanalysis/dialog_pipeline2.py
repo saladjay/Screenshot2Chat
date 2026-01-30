@@ -222,6 +222,7 @@ def analyze_chat_image(
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(output_payload, f, ensure_ascii=False, indent=2)
 
+    print('internal print:', dialogs)
     if draw_output_path:
         draw_dialog_overlays(
             image=image,
