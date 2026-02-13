@@ -21,3 +21,6 @@ example_*/
 dialog_draws*/
 dialog_outputs*/
 .hypothesis/
+
+# remove model for deployment
+model/
