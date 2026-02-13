@@ -239,10 +239,21 @@ screenshotanalysis/
 
 ## 文档
 
-- [需求文档](.kiro/specs/chat-bubble-detection-refactor/requirements.md)
-- [设计文档](.kiro/specs/chat-bubble-detection-refactor/design.md)
-- [任务列表](.kiro/specs/chat-bubble-detection-refactor/tasks.md)
-- [API文档](src/screenshotanalysis/chat_layout_detector.py) - 详见源码docstring
+### 当前文档
+- [用户指南](docs/USER_GUIDE.md) - 完整的使用指南
+- [API参考](docs/API_REFERENCE.md) - 详细的API文档
+- [架构设计](docs/ARCHITECTURE.md) - 系统架构说明
+- [迁移指南](docs/MIGRATION_GUIDE.md) - 从旧版本迁移
+- [配置管理](docs/CONFIG_MANAGER.md) - 配置系统文档
+- [性能监控](docs/PERFORMANCE_MONITORING.md) - 性能监控功能
+
+### 规格文档
+- [需求文档](.kiro/specs/screenshot-analysis-library-refactor/requirements.md)
+- [设计文档](.kiro/specs/screenshot-analysis-library-refactor/design.md)
+- [任务列表](.kiro/specs/screenshot-analysis-library-refactor/tasks.md)
+
+### 开发历史
+- [开发文档归档](history/development/README.md) - 重构过程中的所有开发文档
 
 ## 许可证
 

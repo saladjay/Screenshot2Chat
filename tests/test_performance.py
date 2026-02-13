@@ -9,8 +9,8 @@ import time
 import tracemalloc
 import numpy as np
 import pytest
-from src.screenshotanalysis.chat_layout_detector import ChatLayoutDetector
-from src.screenshotanalysis.processors import TextBox
+from screenshotanalysis.chat_layout_detector import ChatLayoutDetector
+from screenshotanalysis.processors import TextBox
 
 
 def generate_test_boxes(num_boxes: int, screen_width: int = 720) -> list:

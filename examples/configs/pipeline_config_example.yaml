@@ -1,0 +1,16 @@
+name: saved_pipeline
+steps:
+- class: TextDetector
+  config:
+    backend: paddleocr
+  enabled: true
+  name: text_detection
+  type: detector
+- class: LayoutExtractor
+  config:
+    source: text_detection
+  depends_on:
+  - text_detection
+  enabled: true
+  name: layout_extraction
+  type: extractor
