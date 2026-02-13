@@ -8,7 +8,7 @@ import cv2
 from PIL import Image, ImageDraw, ImageFont
 from pathlib import Path
 from copy import deepcopy
-from screenshotanalysis.experience_formula import *
+from screenshotanalysis.experience_formula import SpeakerPositionKMeans, concat_data
 from screenshotanalysis.utils import DISCORD, WHATSAPP, INSTAGRAM, TELEGRAM
 from screenshotanalysis.chat_layout_detector import ChatLayoutDetector
 from screenshotanalysis.basemodel import TextBox, OTHER, UNKNOWN, USER

@@ -1,130 +1,14 @@
-# 使用经验公式的方式处理discord， WhatsApp， Instagram， telegram这四个app聊天框的分析
+# 通用的聊天框分析工具，不依赖特定app类型
 import numpy as np
-import yaml
 import os
 from typing import Dict, List
-from functools import reduce
 from sklearn.cluster import KMeans
 import joblib
-from screenshotanalysis.utils import DISCORD, WHATSAPP, INSTAGRAM, TELEGRAM
-
-USER_LEFT = 'user_box_left_filters'
-USER_RIGHT = 'user_box_right_filters'
-TALKER_LEFT = 'talker_box_left_filters'
-TALKER_RIGHT = 'talker_box_right_filters'
 
 OUTPUT_PATH = 'history'
 DURING_TEST = False
-def calculate_condition_by_yaml_config(left_ratio, right_ratio, conversation_app_type):
-    with open('conversation_analysis_config.yaml', 'r', encoding='utf-8') as file:
-        config = yaml.safe_load(file)
-    if conversation_app_type not in [DISCORD, WHATSAPP, INSTAGRAM, TELEGRAM]:
-        raise NotImplementedError(f"未实现{conversation_app_type}的配置")
-
-    def use_filters(filters, ratio, filter_reuslts):
-        for f in filters:
-            if f == "none":
-                continue
-            f_type, f_value = f.split("_")
-            if f_type == 'lt':
-                filter_reuslts.append(ratio < float(f_value))
-            elif f_type == 'gt':
-                filter_reuslts.append(ratio > float(f_value))
-            else:
-                raise NotImplementedError(f'conversation_analysis_config.yaml里{conversation_app_type}中存在未实现的filter')
-
-    filter_reuslts = []
-    left_filters = config[conversation_app_type][USER_LEFT]
-    right_filters = config[conversation_app_type][USER_RIGHT]
-    use_filters(left_filters, left_ratio, filter_reuslts)
-    use_filters(right_filters, right_ratio, filter_reuslts)
-
-    user_condition = reduce(np.logical_and, filter_reuslts)
-    user_left_start = left_ratio[user_condition]
-    user_right_end = right_ratio[user_condition]
-
-    filter_reuslts = []
-    left_filters = config[conversation_app_type][TALKER_LEFT]
-    right_filters = config[conversation_app_type][TALKER_RIGHT]
-    use_filters(left_filters, left_ratio, filter_reuslts)
-    use_filters(right_filters, right_ratio, filter_reuslts)
-
-    talker_condition = reduce(np.logical_and, filter_reuslts)
-    talker_left_start = left_ratio[talker_condition]
-    talker_right_end = right_ratio[talker_condition]
-
-    return np.median(user_left_start), np.median(user_right_end), np.median(talker_left_start), np.median(talker_right_end)
-
-def reinit_data(conversation_app_type):
-    data = np.zeros((0, 10))
-    ratios = np.zeros((0, 4))
-    if conversation_app_type not in [DISCORD, WHATSAPP, INSTAGRAM, TELEGRAM]:
-        raise NotImplementedError(f"未实现{conversation_app_type}的配置")
-
-    output = f'{OUTPUT_PATH}/{conversation_app_type}'
-    if os.path.exists(output) == False:
-        os.makedirs(output)
-    np.save(f'{output}/data.npy', data)
-    np.savetxt(f'{output}/ratios.txt', np.array(ratios), fmt='%.3f', delimiter=',')
-
-def init_data(padding, text_boxes, image_sizes, conversation_app_type):
-    if conversation_app_type not in [DISCORD, WHATSAPP, INSTAGRAM, TELEGRAM]:
-        raise NotImplementedError(f"未实现{conversation_app_type}的配置")
-
-    output = f'{OUTPUT_PATH}/{conversation_app_type}'
-    if not os.path.exists(f'{output}'):
-        os.makedirs(output)
-    data = np.zeros((text_boxes.shape[0], 4+4+2)) # [min_x, min_y, max_x, max_y, l, t, r, b, w, h]
-                                                #  0      1      2      3      4  5  6  7  8  9
-    data[:,:4] = text_boxes
-    for i in range(4):
-        data[:,4+i] = padding[i]
-    
-    for i in range(2):
-        data[:,8+i] = image_sizes[i]
-
-    image_width_wo_padding = data[:, 8] - data[:, 4] - data[:, 6]
-    text_box_left = data[:, 0] - data[:, 4]
-    text_box_left_ratio = text_box_left / (image_width_wo_padding + 1e-9)
-
-    text_box_right = data[:, 2] - data[:, 4]
-    text_box_right_ratio = text_box_right / (image_width_wo_padding + 1e-9)
-
-    user_left, user_right, talker_left, talker_right = calculate_condition_by_yaml_config(text_box_left_ratio, text_box_right_ratio, conversation_app_type)
-
-    save_data(data, [user_left, user_right, talker_left, talker_right], conversation_app_type)
-    
-def load_data(conversation_app_type):
-    if conversation_app_type not in [DISCORD, WHATSAPP, INSTAGRAM, TELEGRAM]:
-        raise NotImplementedError(f"未实现{conversation_app_type}的配置")
-    output = f'{OUTPUT_PATH}/{conversation_app_type}'
-    data_path = f"{output}/data.npy"
-    ratios_path = f'{output}/ratios.txt'
-    if not all([os.path.exists(output), os.path.exists(data_path), os.path.exists(ratios_path)]) :
-        raise FileNotFoundError(f"{output}, {data_path}或{ratios_path}路径不存在")
-    try:
-        data = np.load(data_path)
-    except Exception as e:
-        raise e
-
-    try:
-        ratios = np.loadtxt(ratios_path, delimiter=',')
-    except Exception as e:
-        raise e
-    return data, ratios
-
-def save_data(data, ratios, conversation_app_type):
-    if conversation_app_type not in [DISCORD, WHATSAPP, INSTAGRAM, TELEGRAM]:
-        raise NotImplementedError(f"未实现{conversation_app_type}的配置")
-
-    output = f'{OUTPUT_PATH}/{conversation_app_type}'
-    if os.path.exists(output) == False:
-        os.makedirs(output)
-    
-    np.save(f'{output}/data.npy', data)
-    np.savetxt(f'{output}/ratios.txt', np.array(ratios), fmt='%.3f', delimiter=',')
-
-def concat_data(group_data_dict:List[Dict]):
+def concat_data(group_data_dict: List[Dict]):
+    """合并多组数据"""
     data_lists = []
     for group_data in group_data_dict:
         padding = group_data['padding']
@@ -143,68 +27,35 @@ def concat_data(group_data_dict:List[Dict]):
 
     return np.concatenate(data_lists)
 
-def _update_data(data, conversation_app_type):
-    image_width_wo_padding = data[:, 8] - data[:, 4] - data[:, 6]
-    text_box_left = data[:, 0] - data[:, 4]
-    text_box_left_ratio = text_box_left / (image_width_wo_padding + 1e-9)
-
-    text_box_right = data[:, 2] - data[:, 4]
-    text_box_right_ratio = text_box_right / (image_width_wo_padding + 1e-9)
-
-    user_left, user_right, talker_left, talker_right = calculate_condition_by_yaml_config(text_box_left_ratio, text_box_right_ratio, conversation_app_type)
-
-    save_data(data, [user_left, user_right, talker_left, talker_right], conversation_app_type)
-
-def update_data_by_np_array(data, conversation_app_type):
-    old_data, _ = load_data(conversation_app_type)
-    new_data = np.zeros((old_data.shape[0] + data.shape[0], 10))
-    
-    new_data[:old_data.shape[0],:] = old_data
-    new_data[old_data.shape[0]:,:] = data
-    _update_data(new_data, conversation_app_type)
-
-def update_data(padding, text_boxes, image_sizes, conversation_app_type): # l,t,r,b   [n,4]    w, h
-    if conversation_app_type not in [DISCORD, WHATSAPP, INSTAGRAM, TELEGRAM]:
-        raise NotImplementedError(f"未实现{conversation_app_type}的配置")
-    data = np.zeros((text_boxes.shape[0], 4+4+2)) # [min_x, min_y, max_x, max_y, l, t, r, b, w, h]
-                                                #  0      1      2      3      4  5  6  7  8  9
-    data[:,:4] = text_boxes
-    for i in range(4):
-        data[:,4+i] = padding[i]
-    
-    for i in range(2):
-        data[:,8+i] = image_sizes[i]
-
-    old_data, _ = load_data(conversation_app_type)
-    new_data = np.zeros((old_data.shape[0] + data.shape[0], 10))
-    new_data[:old_data.shape[0],:] = old_data
-    new_data[old_data.shape[0]:,:] = data
-    _update_data(new_data, conversation_app_type)
-
 
 class SpeakerPositionKMeans:
+    """基于KMeans的说话者位置聚类器（应用无关）"""
+    
     def __init__(self):
         self.model = None
         self.left_center = None
         self.right_center = None
         self.data = None
-        self.app_type = None
 
-    def fit(self, center_x_history, conversation_app_type, update=False):
+    def fit(self, center_x_history, update=False):
         """
-        center_x_history: List[[center_x]]
+        训练KMeans模型
+        
+        Args:
+            center_x_history: List[float] - 文本框中心X坐标历史数据
+            update: bool - 是否更新现有模型
         """
         if not update:
-            X = np.array(center_x_history)
+            X = np.array(center_x_history).reshape(-1, 1)
         else:
             old_X = self.load_data()
             if old_X is not None:
-                new_X = np.array(center_x_history)
+                new_X = np.array(center_x_history).reshape(-1, 1)
                 X = np.vstack([old_X, new_X])
             else:
-                X = np.array(center_x_history)
+                X = np.array(center_x_history).reshape(-1, 1)
+        
         self.data = X
-        self.app_type = conversation_app_type
         self.model = KMeans(
             n_clusters=2,
             n_init="auto",
@@ -219,50 +70,61 @@ class SpeakerPositionKMeans:
 
     def predict(self, center_x):
         """
-        输入单个 center_x，输出 talker / user
+        预测说话者类型
+        
+        Args:
+            center_x: float - 文本框中心X坐标
+            
+        Returns:
+            str - "left" 或 "right"
         """
         if self.model is None:
             self.load_model()
         if self.model is None:
             raise RuntimeError("KMeans model not fitted")
 
-        cluster = self.model.predict([[center_x]])[0]
-
         # 用物理位置而不是 cluster id 判断
         if abs(center_x - self.left_center) < abs(center_x - self.right_center):
-            return "talker"
+            return "left"
         else:
-            return "user"
+            return "right"
     
     def save(self):
-        output = f'{OUTPUT_PATH}/{self.app_type}'
-        if os.path.exists(output) == False:
+        """保存模型和数据"""
+        output = OUTPUT_PATH
+        if not os.path.exists(output):
             os.makedirs(output)
         joblib.dump(self.model, f'{output}/kmeans_model.joblib')
         np.save(f'{output}/text_box_center.npy', self.data)
 
     def load_data(self):
-        output = f'{OUTPUT_PATH}/{self.app_type}'
-        data_path = f'{output}/text_box_center.npy'
+        """加载历史数据"""
+        data_path = f'{OUTPUT_PATH}/text_box_center.npy'
         data = None
         if os.path.exists(data_path):
             try:
                 data = np.load(data_path)
-            except Exception as e:
+            except Exception:
                 return None
         return data
 
-
     def load_model(self):
-        output = f'{OUTPUT_PATH}/{self.app_type}'
-        model_path = f'{output}/kmeans_model.joblib'
+        """加载已训练的模型"""
+        model_path = f'{OUTPUT_PATH}/kmeans_model.joblib'
         if os.path.exists(model_path):
             try:
                 self.model = joblib.load(model_path)
-            except Exception as e:
+                # 重新计算中心点
+                if self.model is not None:
+                    centers = sorted(self.model.cluster_centers_.flatten())
+                    self.left_center = centers[0]
+                    self.right_center = centers[1]
+            except Exception:
                 self.model = None
         else:
             self.model = None
 
+
 def use_center_x_split_talker_and_user():
+    """使用中心X坐标分割说话者（占位函数）"""
     pass
